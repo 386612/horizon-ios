@@ -1,3 +1,5 @@
+pub mod mt19937_64;
+
 //! A small, allocation-light reader for the public YSM container header.
 //!
 //! YSM payloads are encrypted. This crate deliberately separates safe
