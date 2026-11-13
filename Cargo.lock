@@ -2228,6 +2228,10 @@ dependencies = [
 [[package]]
 name = "horizon-ysm"
 version = "0.1.0"
+dependencies = [
+ "cc",
+ "ruzstd",
+]
 
 [[package]]
 name = "iana-time-zone"
