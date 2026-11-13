@@ -135,6 +135,7 @@ pub enum ContainerError {
     TruncatedFooter,
     MissingCryptoVersion,
     UnsupportedCryptoVersion(u32),
+    CryptoVersionMismatch { header: u32, payload: u32 },
     EmptyEncryptedPayload,
 }
 
@@ -145,6 +146,7 @@ impl std::fmt::Display for ContainerError {
             Self::TruncatedFooter => f.write_str("YSM file is missing its 64-byte key/IV/hash footer"),
             Self::MissingCryptoVersion => f.write_str("YSM file is missing its crypto version"),
             Self::UnsupportedCryptoVersion(version) => write!(f, "unsupported YSM crypto version {version}"),
+            Self::CryptoVersionMismatch { header, payload } => write!(f, "YSM header declares crypto version {header}, but payload declares {payload}"),
             Self::EmptyEncryptedPayload => f.write_str("YSM encrypted payload is empty"),
         }
     }
@@ -179,6 +181,9 @@ pub fn parse_container(file: &[u8]) -> Result<YsmContainer<'_>, ContainerError> 
     );
     if crypto_version != 3 {
         return Err(ContainerError::UnsupportedCryptoVersion(crypto_version));
+    }
+    if header.crypto != crypto_version {
+        return Err(ContainerError::CryptoVersionMismatch { header: header.crypto, payload: crypto_version });
     }
 
     if file.len() < version_end + 64 {
