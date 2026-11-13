@@ -133,6 +133,18 @@ pub fn main_with(mods: crate::mod_api::Mods) {
         // dragged for is the one that finds it. `scan` says what it took and what it left alone.
         horizon_client::import::scan(&documents);
     }
+    // Keep the direct YSM model folder ready in the active game directory.
+    // Discovery is intentionally separate from parsing/decryption and does not load models yet.
+    if side == "client" {
+        match horizon_ysm::discover_models(&home) {
+            Ok(models) => log::info!(
+                "Horizon YSM: found {} model file(s) in {}",
+                models.len(),
+                home.join(horizon_ysm::DEFAULT_MODEL_DIRECTORY).display()
+            ),
+            Err(error) => log::warn!("Horizon YSM: could not scan model directory: {error}"),
+        }
+    }
     let renderers = crate::mod_api::mods()
         .iter()
         .filter_map(|m| m.render())
