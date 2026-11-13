@@ -8,6 +8,9 @@ pub mod mt19937_64;
 
 use std::collections::BTreeMap;
 
+/// Default directory for user-imported `.ysm` player models, relative to the game root.
+pub const DEFAULT_MODEL_DIRECTORY: &str = "config/ysm/models";
+
 /// The largest header accepted before the first NUL byte.
 pub const MAX_HEADER_LEN: usize = 1024 * 1024;
 
