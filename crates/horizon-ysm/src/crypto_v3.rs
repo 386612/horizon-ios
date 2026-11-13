@@ -238,3 +238,44 @@ fn wash_ysm_zstd(input: &[u8]) -> Result<Vec<u8>, DecryptError> {
     }
     Ok(data)
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn restores_ysm_raw_block_header_and_decompresses_frame() {
+        // A single-segment Zstandard frame containing the raw bytes "abc",
+        // with its block header transformed using the YSM v3 mapping.
+        let ysm_frame = [
+            0x28, 0xb5, 0x2f, 0xfd, 0x20, 0x03,
+            0xe0, 0xea, 0xd4, b'a', b'b', b'c',
+        ];
+        let washed = wash_ysm_zstd(&ysm_frame).expect("wash YSM Zstandard frame");
+        assert_eq!(&washed[6..9], &[0x19, 0x00, 0x00]);
+        assert_eq!(decompress_ysm_zstd(&ysm_frame).expect("decompress frame"), b"abc");
+    }
+
+    #[test]
+    fn rejects_invalid_zstd_magic() {
+        assert!(matches!(wash_ysm_zstd(b"nope!"), Err(DecryptError::InvalidZstdFrame(_))));
+    }
+
+    #[test]
+    fn rejects_truncated_nonce_prefix() {
+        assert!(matches!(decrypt_parsed(b"short", &dummy_container()), Err(DecryptError::PayloadTooShort)));
+    }
+
+    fn dummy_container<'a>() -> YsmContainer<'a> {
+        let header = crate::parse_header(b"YSGP<format> 4\\n<crypto> 3\\n\\0x").unwrap();
+        YsmContainer {
+            header,
+            crypto_version: 3,
+            encrypted_payload: &[],
+            key: [0; 32],
+            iv: [0; 24],
+            stored_file_hash: 0,
+        }
+    }
+}
