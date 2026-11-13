@@ -1,15 +1,20 @@
 //! Legacy YSM resource table reader for format versions 4 through 9.
 use crate::resource::{
-    encode_rgba_texture, parse_model_record, ResourceError, ResourceReader, YsmAnimationInfo,
-    YsmModel, YsmTexture,
+    encode_rgba_texture, parse_model_record, ResourceError, ResourceReader, YsmModel, YsmTexture,
 };
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct YsmResource {
     pub format: u32,
     pub models: Vec<(String, YsmModel)>,
     pub textures: Vec<YsmTexture>,
     pub animations: Vec<YsmAnimationInfo>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct YsmAnimationInfo {
+    pub model_id: u32,
+    pub name: String,
 }
 
 /// Parses the legacy resource layout used by YSM format versions 4-9.
