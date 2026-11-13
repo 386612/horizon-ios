@@ -252,3 +252,76 @@ mod tests {
         );
     }
 }
+
+
+use std::io;
+use std::path::{Path, PathBuf};
+
+/// Creates the model directory beneath the supplied game root and returns its path.
+pub fn ensure_model_directory(game_root: impl AsRef<Path>) -> io::Result<PathBuf> {
+    let directory = game_root.as_ref().join(DEFAULT_MODEL_DIRECTORY);
+    std::fs::create_dir_all(&directory)?;
+    Ok(directory)
+}
+
+/// Finds regular YSM files in the model directory (non-recursively).
+/// The extension match is case-insensitive and results are sorted by file name.
+/// Files are discovered, not parsed or decrypted.
+pub fn discover_models(game_root: impl AsRef<Path>) -> io::Result<Vec<PathBuf>> {
+    let directory = ensure_model_directory(game_root)?;
+    let mut models = Vec::new();
+    for entry in std::fs::read_dir(directory)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() { continue; }
+        let path = entry.path();
+        let is_ysm = path.extension().and_then(std::ffi::OsStr::to_str)
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("ysm"));
+        if is_ysm { models.push(path); }
+    }
+    models.sort();
+    Ok(models)
+}
+
+#[cfg(test)]
+mod model_directory_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT_TEST_DIR: AtomicU64 = AtomicU64::new(0);
+
+    fn test_root() -> PathBuf {
+        let id = NEXT_TEST_DIR.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!("horizon-ysm-test-{}-{id}", std::process::id()))
+    }
+
+    #[test]
+    fn creates_model_directory_when_missing() {
+        let root = test_root();
+        let directory = ensure_model_directory(&root).expect("create model directory");
+        assert!(directory.is_dir());
+        assert!(directory.ends_with("config/ysm/models"));
+        std::fs::remove_dir_all(root).expect("clean test directory");
+    }
+
+    #[test]
+    fn discovers_ysm_files_case_insensitively_and_sorts_them() {
+        let root = test_root();
+        let directory = ensure_model_directory(&root).expect("create model directory");
+        std::fs::write(directory.join("zeta.ysm"), b"not parsed here").unwrap();
+        std::fs::write(directory.join("Alpha.YSM"), b"not parsed here").unwrap();
+        std::fs::write(directory.join("notes.txt"), b"ignore").unwrap();
+        std::fs::create_dir(directory.join("nested.ysm")).unwrap();
+        let models = discover_models(&root).expect("discover models");
+        let names: Vec<_> = models.iter().map(|path| path.file_name().unwrap().to_string_lossy().into_owned()).collect();
+        assert_eq!(names, ["Alpha.YSM", "zeta.ysm"]);
+        std::fs::remove_dir_all(root).expect("clean test directory");
+    }
+
+    #[test]
+    fn missing_directory_is_created_and_returns_empty_list() {
+        let root = test_root();
+        let models = discover_models(&root).expect("discover in new directory");
+        assert!(models.is_empty());
+        assert!(root.join(DEFAULT_MODEL_DIRECTORY).is_dir());
+        std::fs::remove_dir_all(root).expect("clean test directory");
+    }
+}
