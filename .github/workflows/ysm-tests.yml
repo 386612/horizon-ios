@@ -1,0 +1,31 @@
+name: YSM parser tests
+
+on:
+  push:
+    branches: [feature/ysm-player-model]
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'crates/horizon-ysm/**'
+      - '.github/workflows/ysm-tests.yml'
+  pull_request:
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'crates/horizon-ysm/**'
+      - '.github/workflows/ysm-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test the YSM header reader
+        run: cargo test --locked -p horizon-ysm
