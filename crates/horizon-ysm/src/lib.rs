@@ -7,6 +7,9 @@
 pub mod mt19937_64;
 mod cityhash;
 pub mod crypto_v3;
+pub mod resource;
+
+pub use resource::{encode_rgba_texture, parse_model_record, ResourceError, ResourceReader, YsmBone, YsmCube, YsmFace, YsmLegacyInfo, YsmModel, YsmTexture, YsmVertex};
 
 pub use crypto_v3::{decrypt_container, DecryptError};
 
