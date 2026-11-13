@@ -113,6 +113,100 @@ pub fn parse_header(file: &[u8]) -> Result<YsmHeader, HeaderError> {
     })
 }
 
+
+/// A structurally validated YSM file container.
+///
+/// The key, IV and encrypted bytes are exposed as borrowed/raw data. They are
+/// not decrypted by this type.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct YsmContainer<'a> {
+    pub header: YsmHeader,
+    pub crypto_version: u32,
+    pub encrypted_payload: &'a [u8],
+    pub key: [u8; 32],
+    pub iv: [u8; 24],
+    pub stored_file_hash: u64,
+}
+
+/// Errors raised while reading the outer YSM file container.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ContainerError {
+    Header(HeaderError),
+    TruncatedFooter,
+    MissingCryptoVersion,
+    UnsupportedCryptoVersion(u32),
+    EmptyEncryptedPayload,
+}
+
+impl std::fmt::Display for ContainerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Header(error) => write!(f, "{error}"),
+            Self::TruncatedFooter => f.write_str("YSM file is missing its 64-byte key/IV/hash footer"),
+            Self::MissingCryptoVersion => f.write_str("YSM file is missing its crypto version"),
+            Self::UnsupportedCryptoVersion(version) => write!(f, "unsupported YSM crypto version {version}"),
+            Self::EmptyEncryptedPayload => f.write_str("YSM encrypted payload is empty"),
+        }
+    }
+}
+
+impl std::error::Error for ContainerError {}
+
+impl From<HeaderError> for ContainerError {
+    fn from(value: HeaderError) -> Self { Self::Header(value) }
+}
+
+/// Parses the outer YSM container and extracts its encrypted payload and
+/// trailing key material. The stored file hash is returned but not verified
+/// yet; verification requires YSM's modified CityHash64 implementation.
+pub fn parse_container(file: &[u8]) -> Result<YsmContainer<'_>, ContainerError> {
+    let header = parse_header(file)?;
+    let signature_start = if file.starts_with(&[0xEF, 0xBB, 0xBF]) { 3 } else { 0 };
+    let header_start = signature_start + 4;
+    let separator = file[header_start..]
+        .iter()
+        .position(|byte| *byte == 0)
+        .map(|offset| header_start + offset)
+        .ok_or(ContainerError::Header(HeaderError::MissingPayloadSeparator))?;
+
+    let version_start = separator + 1;
+    let version_end = version_start.checked_add(4).ok_or(ContainerError::MissingCryptoVersion)?;
+    if file.len() < version_end {
+        return Err(ContainerError::MissingCryptoVersion);
+    }
+    let crypto_version = u32::from_le_bytes(
+        file[version_start..version_end].try_into().expect("four-byte slice"),
+    );
+    if crypto_version != 3 {
+        return Err(ContainerError::UnsupportedCryptoVersion(crypto_version));
+    }
+
+    if file.len() < version_end + 64 {
+        return Err(ContainerError::TruncatedFooter);
+    }
+    let footer_start = file.len() - 64;
+    if footer_start <= version_end {
+        return Err(ContainerError::EmptyEncryptedPayload);
+    }
+
+    let key: [u8; 32] = file[footer_start..footer_start + 32]
+        .try_into().expect("32-byte key slice");
+    let iv: [u8; 24] = file[footer_start + 32..footer_start + 56]
+        .try_into().expect("24-byte IV slice");
+    let stored_file_hash = u64::from_le_bytes(
+        file[footer_start + 56..].try_into().expect("8-byte hash slice"),
+    );
+
+    Ok(YsmContainer {
+        header,
+        crypto_version,
+        encrypted_payload: &file[version_end..footer_start],
+        key,
+        iv,
+        stored_file_hash,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
