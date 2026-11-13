@@ -185,7 +185,7 @@ fn chacha_xor(state: &mut [u32; 16], input: &[u8]) -> Vec<u8> {
 fn decompress_ysm_zstd(input: &[u8]) -> Result<Vec<u8>, DecryptError> {
     let washed = wash_ysm_zstd(input)?;
     let cursor = Cursor::new(washed);
-    let mut decoder = ruzstd::StreamingDecoder::new(cursor)
+    let mut decoder = ruzstd::decoding::StreamingDecoder::new(cursor)
         .map_err(|e| DecryptError::Zstd(e.to_string()))?;
     let mut output = Vec::new();
     let mut limited = decoder.take((MAX_DECOMPRESSED_SIZE as u64) + 1);
