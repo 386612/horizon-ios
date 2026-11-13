@@ -1,10 +1,10 @@
-pub mod mt19937_64;
-
 //! A small, allocation-light reader for the public YSM container header.
 //!
 //! YSM payloads are encrypted. This crate deliberately separates safe
 //! container/header recognition from payload decryption and model decoding;
 //! accepting a header does not mean the model has been loaded.
+
+pub mod mt19937_64;
 
 use std::collections::BTreeMap;
 
