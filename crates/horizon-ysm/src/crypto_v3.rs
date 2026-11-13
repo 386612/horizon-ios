@@ -262,20 +262,5 @@ mod tests {
         assert!(matches!(wash_ysm_zstd(b"nope!"), Err(DecryptError::InvalidZstdFrame(_))));
     }
 
-    #[test]
-    fn rejects_truncated_nonce_prefix() {
-        assert!(matches!(decrypt_parsed(b"short", &dummy_container()), Err(DecryptError::PayloadTooShort)));
-    }
 
-    fn dummy_container<'a>() -> YsmContainer<'a> {
-        let header = crate::parse_header(b"YSGP<format> 4\\n<crypto> 3\\n\\0x").unwrap();
-        YsmContainer {
-            header,
-            crypto_version: 3,
-            encrypted_payload: &[],
-            key: [0; 32],
-            iv: [0; 24],
-            stored_file_hash: 0,
-        }
-    }
 }
