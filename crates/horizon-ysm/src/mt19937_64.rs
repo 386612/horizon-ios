@@ -80,7 +80,7 @@ mod tests {
     fn matches_mt19937_64_reference_vector() {
         let mut generator = Mt19937_64::new(5489);
         assert_eq!(generator.next_u64(), 14_514_284_786_278_117_030);
-        assert_eq!(generator.next_u64(), 4_620_546_748_166_741_812);
+        assert_eq!(generator.next_u64(), 4_620_546_740_167_642_908);
     }
 
     #[test]
