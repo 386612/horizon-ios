@@ -8,6 +8,9 @@ pub mod mt19937_64;
 mod cityhash;
 pub mod crypto_v3;
 pub mod resource;
+pub mod legacy_resource;
+
+pub use legacy_resource::{parse_resource_v4_v9, YsmResource};
 
 pub use resource::{encode_rgba_texture, parse_model_record, ResourceError, ResourceReader, YsmBone, YsmCube, YsmFace, YsmLegacyInfo, YsmModel, YsmTexture, YsmVertex};
 
