@@ -12,22 +12,27 @@ This crate currently:
 
 It does **not** yet verify the stored CityHash, decrypt the payload, reverse
 YSM's Zstandard block transformation, decode model geometry, load textures,
-evaluate Molang, or play animations. It is not yet a runtime model loader.
+evaluate Molang, play animations, or integrate with the game's player renderer.
+It is not yet a runtime model loader.
 
-## Intended content-pack layout
+## Direct `.ysm` model storage
 
-Horizon content mods use namespaced resource paths. The intended layout for a
-future YSM-aware Horizon build is:
+The planned location for user-imported YSM files is:
 
 ```text
-Aru.hmod
-├── horizon-mod.toml
-└── assets/
-    └── aru/
-        └── ysm/
-            └── 1.ysm
+config/
+└── ysm/
+    └── models/
+        ├── model1.ysm
+        └── model2.ysm
 ```
 
-The `.ysm` path is a proposed convention, not a path the current game loads
-as a player model. A later integration step must connect this crate to the
-content/resource loader and the native player rendering hook.
+The path is relative to Horizon's game working directory (on iOS, the app's
+game Documents directory). Users can place multiple `.ysm` files here without
+wrapping them in `.hmod`. The `.hmod` content-pack format is not required for
+this direct-import workflow.
+
+This is the agreed storage convention; the current build does not yet create,
+scan, or load this directory. A later integration step must connect the
+directory to the YSM decryptor, model/texture/animation decoders, and native
+player rendering hook.
