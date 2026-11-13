@@ -12,6 +12,7 @@ members = [
     "crates/horizon-threads",
     "crates/horizon-hdr",
     "crates/horizon-world",
+    "crates/horizon-ysm",
     "crates/horizon-client",
     "crates/horizon-client-lib",
     "crates/horizon-client-core",
