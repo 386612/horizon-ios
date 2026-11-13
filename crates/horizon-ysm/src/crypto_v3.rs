@@ -85,7 +85,9 @@ fn modified_xchacha_decrypt(data: &[u8], key: &[u8; 32], iv: &[u8; 24], seed: u6
     key_iv[32..].copy_from_slice(iv);
     let hash2 = city_hash64_with_seed(&key_iv, seed);
     let mut next_round_size = (((hash2 & 0x3f) | 0x40) << 6) as usize;
-    let mut state = xchacha_initial_state(key, iv);
+    let initial_rounds = (10 * (hash2 % 3) + 10) as u32;
+    set_rounds(initial_rounds);
+    let mut state = xchacha_initial_state(key, iv, initial_rounds);
     let mut output = Vec::with_capacity(data.len());
     let mut offset = 0usize;
 
@@ -119,13 +121,13 @@ thread_local! {
 fn set_rounds(rounds: u32) { CURRENT_ROUNDS.with(|v| v.set(rounds)); }
 fn get_rounds() -> u32 { CURRENT_ROUNDS.with(std::cell::Cell::get) }
 
-fn xchacha_initial_state(key: &[u8; 32], iv: &[u8; 24]) -> [u32; 16] {
+fn xchacha_initial_state(key: &[u8; 32], iv: &[u8; 24], rounds: u32) -> [u32; 16] {
     let mut input = [0u32; 16];
     input[..4].copy_from_slice(&[0x6170_7865, 0x3320_646e, 0x7962_2d32, 0x6b20_6574]);
     for i in 0..8 {
         input[4 + i] = u32::from_le_bytes(key[i * 4..i * 4 + 4].try_into().unwrap());
     }
-    let subkey = hchacha20(&input, &iv[..16], 20);
+    let subkey = hchacha20(&input, &iv[..16], rounds);
     input[4..12].copy_from_slice(&subkey[0..8]);
     input[12] = 0;
     input[13] = 0;
