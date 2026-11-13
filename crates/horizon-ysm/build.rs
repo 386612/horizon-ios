@@ -5,6 +5,7 @@ fn main() {
         .file("src/cityhash/ffi.cpp")
         .include("src/cityhash")
         .flag_if_supported("-std=c++11")
+        .flag_if_supported("-U__SSE4_2__")
         .warnings(false)
         .compile("ysm_cityhash");
     println!("cargo:rerun-if-changed=src/cityhash/city.cc");
