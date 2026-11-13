@@ -1565,6 +1565,7 @@ dependencies = [
  "horizon-theme",
  "horizon-threads",
  "horizon-world",
+ "horizon-ysm",
  "java_regex",
  "log",
  "miniz_oxide 0.8.9",
