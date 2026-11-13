@@ -7,3 +7,11 @@ description = "YSM file container header reader for Horizon"
 
 [lib]
 path = "src/lib.rs"
+
+
+
+[dependencies]
+ruzstd = "0.9.1"
+
+[build-dependencies]
+cc = "1.6"
