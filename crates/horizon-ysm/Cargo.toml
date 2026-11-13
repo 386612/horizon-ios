@@ -12,6 +12,7 @@ path = "src/lib.rs"
 
 [dependencies]
 ruzstd = "0.9.1"
+png = "0.18.1"
 
 [build-dependencies]
 cc = "1.6"
