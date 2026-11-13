@@ -105,11 +105,14 @@ pub fn parse_header(file: &[u8]) -> Result<YsmHeader, HeaderError> {
             .map_err(|_| HeaderError::InvalidNumber(key))
     };
 
+    let format = number("format")?;
+    let crypto = number("crypto")?;
+
     Ok(YsmHeader {
         raw,
         fields,
-        format: number("format")?,
-        crypto: number("crypto")?,
+        format,
+        crypto,
     })
 }
 
