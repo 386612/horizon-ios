@@ -13,9 +13,7 @@ This crate currently:
 - restores YSM's modified Zstandard frame/block headers and decompresses the resource stream.
 
 The public entry point is `decrypt_container(file_bytes)`. It returns the decompressed
-serialized YSM resource stream. It does not yet decode that stream into model
-geometry, textures, animations, or Molang data, and it is not yet connected to
-the game's player renderer.
+serialized YSM resource stream. The crate also has bounded geometry and RGBA-to-PNG texture record decoders, plus a legacy resource-table reader for YSM format versions 4–9. Animation records are currently indexed/skipped rather than converted into runtime keyframe tracks. Full modern-format resource parsing and connection to the game's player renderer remain future work.
 
 ## Direct `.ysm` model storage
 
