@@ -1,23 +1,25 @@
 # horizon-ysm
 
-Initial YSM container support for Horizon.
+YSM container and Crypto v3 support for Horizon.
 
 This crate currently:
 - recognizes the YSGP signature (with or without a UTF-8 BOM);
-- parses the plaintext header and metadata fields;
-- reads the Crypto Version 3 marker;
-- extracts the encrypted payload and the trailing 32-byte key, 24-byte IV
-  and 8-byte stored hash;
-- rejects truncated containers and inconsistent/unsupported crypto versions.
+- parses plaintext header metadata and validates Crypto Version 3;
+- extracts the encrypted payload, key, IV and stored file hash;
+- verifies the file hash using YSM's modified CityHash64 constants;
+- decrypts the payload using YSM's variable-round modified XChaCha20 stage;
+- reverses the MT19937-64 XOR stage with YSM's CityHash-derived seed;
+- removes the per-file nonce prefix;
+- restores YSM's modified Zstandard frame/block headers and decompresses the resource stream.
 
-It does **not** yet verify the stored CityHash, decrypt the payload, reverse
-YSM's Zstandard block transformation, decode model geometry, load textures,
-evaluate Molang, play animations, or integrate with the game's player renderer.
-It is not yet a runtime model loader.
+The public entry point is `decrypt_container(file_bytes)`. It returns the decompressed
+serialized YSM resource stream. It does not yet decode that stream into model
+geometry, textures, animations, or Molang data, and it is not yet connected to
+the game's player renderer.
 
 ## Direct `.ysm` model storage
 
-The planned location for user-imported YSM files is:
+The model directory is relative to Horizon's game working directory:
 
 ```text
 config/
@@ -27,12 +29,12 @@ config/
         └── model2.ysm
 ```
 
-The path is relative to Horizon's game working directory (on iOS, the app's
-game Documents directory). Users can place multiple `.ysm` files here without
-wrapping them in `.hmod`. The `.hmod` content-pack format is not required for
-this direct-import workflow.
+Horizon creates this directory and discovers `.ysm` files directly. No
+`.hmod` wrapper is required.
 
-This is the agreed storage convention; the current build does not yet create,
-scan, or load this directory. A later integration step must connect the
-directory to the YSM decryptor, model/texture/animation decoders, and native
-player rendering hook.
+## Upstream algorithm and attribution
+
+The Crypto v3 pipeline follows the public OpenYSM/YSMParser implementation.
+The modified CityHash source is vendored from OpenYSM/YSMParser's
+`external/cityhash` directory and retains its upstream MIT copyright and
+license notice. The upstream YSMParser repository is MIT-licensed.
