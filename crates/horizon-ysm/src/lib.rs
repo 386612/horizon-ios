@@ -5,6 +5,10 @@
 //! accepting a header does not mean the model has been loaded.
 
 pub mod mt19937_64;
+mod cityhash;
+pub mod crypto_v3;
+
+pub use crypto_v3::{decrypt_container, DecryptError};
 
 use std::collections::BTreeMap;
 
