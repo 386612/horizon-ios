@@ -112,6 +112,7 @@ pub mod villager_hats;
 pub mod warden;
 pub mod warden_brain;
 pub mod witch;
+pub mod ysm_model;
 pub mod wither;
 
 #[cfg(test)]
