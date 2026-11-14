@@ -244,6 +244,6 @@ mod tests {
 
         let a = YsmBone { name: "a".into(), parent: "b".into(), cubes: vec![], pivot: [0.0; 3], rotation_radians: [0.0; 3] };
         let b = YsmBone { name: "b".into(), parent: "a".into(), cubes: vec![], pivot: [0.0; 3], rotation_radians: [0.0; 3] };
-        assert_eq!(convert_ysm_model(&model(vec![a, b])), Err(YsmModelError::CyclicHierarchy));
+        assert!(matches!(convert_ysm_model(&model(vec![a, b])), Err(YsmModelError::CyclicHierarchy)));
     }
 }
