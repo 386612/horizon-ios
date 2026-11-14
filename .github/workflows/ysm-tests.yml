@@ -9,6 +9,7 @@ on:
       - 'crates/horizon-ysm/**'
       - 'crates/horizon-client/src/mobs.rs'
       - 'crates/horizon-client/src/mobs/ysm_model.rs'
+      - 'crates/horizon-client-lib/Cargo.toml'
       - '.github/workflows/ysm-tests.yml'
   pull_request:
     paths:
