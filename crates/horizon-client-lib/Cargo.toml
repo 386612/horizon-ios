@@ -22,6 +22,8 @@ horizon-client-render = { path = "../horizon-client-render" }
 horizon-command = { path = "../horizon-command" }
 horizon-items = { path = "../horizon-items" }
 horizon-core = { path = "../horizon-core" }
+# YSM player model geometry conversion shared with the client mob renderer.
+horizon-ysm = { path = "../horizon-ysm" }
 # Extension points for the crates above the engine (docs/layers.md, "How a Horizon crate plugs in").
 horizon-hooks = { path = "../horizon-hooks" }
 # `horizon-ctl mcp`: the Model Context Protocol, shared with the launcher and the server.
