@@ -1543,6 +1543,7 @@ dependencies = [
  "horizon-command",
  "horizon-core",
  "horizon-cosmetics",
+ "horizon-ysm",
  "horizon-dualsense",
  "horizon-friends",
  "horizon-gamecontroller",
