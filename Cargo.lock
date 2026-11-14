@@ -1635,6 +1635,7 @@ dependencies = [
  "horizon-command",
  "horizon-core",
  "horizon-cosmetics",
+ "horizon-ysm",
  "horizon-friends",
  "horizon-hdr",
  "horizon-hooks",
