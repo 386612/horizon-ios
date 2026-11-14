@@ -76,7 +76,7 @@ pub fn convert_ysm_model(model: &YsmModel) -> Result<Part, YsmModelError> {
     let mut state = vec![0u8; model.bones.len()];
     let mut built: Vec<Option<Part>> = (0..model.bones.len()).map(|_| None).collect();
     let mut visited = 0usize;
-    for root in roots {
+    for &root in &roots {
         let mut stack = vec![(root, false)];
         while let Some((index, expanded)) = stack.pop() {
             if expanded {
@@ -153,7 +153,7 @@ pub fn convert_ysm_model(model: &YsmModel) -> Result<Part, YsmModelError> {
     }
 
     let mut root_children = Vec::with_capacity(roots.len());
-    for root in roots {
+    for &root in &roots {
         let Some(part) = built[root].take() else {
             return Err(YsmModelError::CyclicHierarchy);
         };
