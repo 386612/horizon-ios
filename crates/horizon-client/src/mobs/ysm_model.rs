@@ -436,25 +436,22 @@ pub fn apply_default_animation(
                 time,
                 MolangContext { anim_time: time, ..base_context },
             ) else { continue; };
-            if animation_weight != 1.0 {
-                for component in &mut value { *component *= animation_weight; }
-            }
             let pose = poses.get(&bone.bone_name);
             match channel_index {
                 0 => {
-                    pose[3] += (-value[0]).to_radians();
-                    pose[4] += (-value[1]).to_radians();
-                    pose[5] += value[2].to_radians();
+                    pose[3] += (-value[0] * animation_weight).to_radians();
+                    pose[4] += (-value[1] * animation_weight).to_radians();
+                    pose[5] += (value[2] * animation_weight).to_radians();
                 }
                 1 => {
-                    pose[0] -= value[0];
-                    pose[1] += value[1];
-                    pose[2] += value[2];
+                    pose[0] -= value[0] * animation_weight;
+                    pose[1] += value[1] * animation_weight;
+                    pose[2] += value[2] * animation_weight;
                 }
                 2 => {
-                    pose[6] *= value[0];
-                    pose[7] *= value[1];
-                    pose[8] *= value[2];
+                    pose[6] *= 1.0 + (value[0] - 1.0) * animation_weight;
+                    pose[7] *= 1.0 + (value[1] - 1.0) * animation_weight;
+                    pose[8] *= 1.0 + (value[2] - 1.0) * animation_weight;
                 }
                 _ => {}
             }
