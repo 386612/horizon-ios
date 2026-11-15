@@ -12416,7 +12416,10 @@ fn load_world_rest(
                                 .map(|metadata| metadata.preview_animation.as_str())
                                 .filter(|name| !name.is_empty()));
                         if let Some(preferred) = preferred_animation {
-                            animations.sort_by_key(|animation| animation.name != preferred);
+                            let short_name = preferred.strip_prefix("animation.").unwrap_or(preferred);
+                            animations.sort_by_key(|animation| {
+                                animation.name != preferred && animation.name != short_name
+                            });
                         }
                         horizon_client::mobs::ysm_model::register_default_animations(
                             texture_path.clone(),
