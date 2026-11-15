@@ -19,6 +19,7 @@ pub enum YsmMolangValue {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct YsmKeyframe {
+    /// Keyframe timestamp in seconds (the file stores ticks at 20 TPS).
     pub time: f32,
     /// YSM lerp enum: 0 linear, 1 step, 2 catmull-rom.
     pub lerp_mode: u64,
@@ -41,6 +42,7 @@ pub struct YsmBoneAnimation {
 #[derive(Clone, Debug, PartialEq)]
 pub struct YsmTimelineEvent {
     pub events: Vec<String>,
+    /// Timeline timestamp in seconds.
     pub time: f32,
 }
 
@@ -48,6 +50,7 @@ pub struct YsmTimelineEvent {
 pub struct YsmAnimationInfo {
     pub model_id: u32,
     pub name: String,
+    /// Duration in file ticks (20 ticks per second).
     pub duration_ticks: f32,
     pub loop_mode: u64,
     pub bones: Vec<YsmBoneAnimation>,
@@ -165,6 +168,7 @@ fn parse_animation(
     model_id: u32,
 ) -> Result<YsmAnimationInfo, ResourceError> {
     let name = reader.read_string()?;
+    // Keep duration in source ticks; the runtime converts it to seconds.
     let duration_ticks = reader.read_f32()?;
     let loop_mode = reader.read_varint()?;
     let mut bones = Vec::new();
@@ -186,7 +190,7 @@ fn parse_animation(
         }
         timeline.push(YsmTimelineEvent {
             events,
-            time: reader.read_f32()?,
+            time: reader.read_f32()? / 20.0,
         });
     }
     Ok(YsmAnimationInfo {
@@ -204,17 +208,19 @@ fn parse_channel(
 ) -> Result<YsmAnimationChannel, ResourceError> {
     let mut keyframes = Vec::new();
     for _ in 0..reader.read_count("animation keyframe count")? {
-        let time = reader.read_f32()?;
+        // YSM stores keyframe timestamps in game ticks (20 ticks per second).
+        let time = reader.read_f32()? / 20.0;
         let lerp_mode = reader.read_varint()?;
-        let post = read_molang_triplet(reader)?;
+        let first = read_molang_triplet(reader)?;
         let has_pre = reader.read_varint()?;
         if has_pre > 1 {
             return Err(ResourceError::InvalidModel("invalid pre-keyframe flag"));
         }
-        let pre = if has_pre == 1 {
-            Some(read_molang_triplet(reader)?)
+        // With a pre value, the binary stores pre first and post second.
+        let (post, pre) = if has_pre == 1 {
+            (read_molang_triplet(reader)?, Some(first))
         } else {
-            None
+            (first, None)
         };
         keyframes.push(YsmKeyframe { time, lerp_mode, post, pre });
     }
@@ -258,7 +264,10 @@ mod animation_tests {
         out.push(1); f32le(out, 12.0);
         out.push(2); string(out, "query.anim_time");
         out.push(1); f32le(out, -4.0);
-        varint(out, 0);
+        varint(out, 1);
+        out.push(1); f32le(out, 24.0);
+        out.push(2); string(out, "query.post_time");
+        out.push(1); f32le(out, -8.0);
     }
 
     #[test]
@@ -285,11 +294,15 @@ mod animation_tests {
         assert_eq!(animation.bones.len(), 1);
         assert_eq!(animation.bones[0].bone_name, "head");
         assert_eq!(animation.bones[0].channels[0].keyframes.len(), 1);
-        assert_eq!(animation.bones[0].channels[0].keyframes[0].post[1],
+        let keyframe = &animation.bones[0].channels[0].keyframes[0];
+        assert!((keyframe.time - 0.125).abs() < 1e-6);
+        assert_eq!(keyframe.pre.as_ref().unwrap()[1],
             YsmMolangValue::Expression("query.anim_time".into()));
+        assert_eq!(keyframe.post[1],
+            YsmMolangValue::Expression("query.post_time".into()));
         assert_eq!(animation.timeline[0].events.len(), 1);
         assert_eq!(animation.timeline[0].events[0], "sound.test");
-        assert_eq!(animation.timeline[0].time, 8.0);
+        assert!((animation.timeline[0].time - 0.4).abs() < 1e-6);
         assert_eq!(reader.remaining(), 0);
     }
 }
