@@ -377,6 +377,9 @@ pub fn parse_resource_v16_v25(
         models.push((model_name, model));
     }
     let _footer_flag = reader.read_varint()?;
+    if reader.read_varint()? != 1 {
+        return Err(ResourceError::InvalidModel("invalid modern sub-entity section marker"));
+    }
 
     for _ in 0..reader.read_count("animation blob count")? {
         let model_id = u32::try_from(reader.read_varint()?)
@@ -461,6 +464,221 @@ pub fn parse_resource_v16_v25(
         sounds,
         metadata,
     }, reader.position()))
+}
+
+/// Parses the category-based resource layout introduced in YSM format 26.
+/// Format 26 keeps each sub-entity name before its payload; later formats
+/// place one shared model first and list its names after the model record.
+pub fn parse_resource_v26_plus(
+    bytes: &[u8],
+    expected_format: u32,
+) -> Result<(YsmResource, usize), ResourceError> {
+    if expected_format < 26 {
+        return Err(ResourceError::InvalidModel("category resource layout requires format 26 or newer"));
+    }
+    let mut reader = ResourceReader::new(bytes);
+    if reader.read_u32()? != expected_format {
+        return Err(ResourceError::InvalidModel("resource version differs from header"));
+    }
+
+    let mut sounds = Vec::new();
+    for _ in 0..reader.read_count("sound count")? {
+        let name = reader.read_string()?;
+        let _hash = reader.read_string()?;
+        let data = reader.read_bytes()?;
+        sounds.push(YsmSound { name, data });
+    }
+    for _ in 0..reader.read_count("function count")? {
+        let _name = reader.read_string()?;
+        let _hash = reader.read_string()?;
+        let _data = reader.read_bytes()?;
+    }
+    for _ in 0..reader.read_count("language file count")? {
+        let _name = reader.read_string()?;
+        let _hash = reader.read_string()?;
+        for _ in 0..reader.read_count("language node count")? {
+            let _key = reader.read_string()?;
+            let _value = reader.read_string()?;
+        }
+    }
+
+    let mut models = Vec::new();
+    let mut textures = Vec::new();
+    let mut animations = Vec::new();
+    let mut controllers = Vec::new();
+    parse_category_sub_entities(
+        &mut reader, bytes, expected_format, "vehicle", 1,
+        &mut models, &mut textures, &mut animations, &mut controllers,
+    )?;
+    parse_category_sub_entities(
+        &mut reader, bytes, expected_format, "projectiles", 2,
+        &mut models, &mut textures, &mut animations, &mut controllers,
+    )?;
+
+    if reader.read_varint()? != 1 {
+        return Err(ResourceError::InvalidModel("invalid category resource section marker"));
+    }
+
+    for _ in 0..reader.read_count("animation blob count")? {
+        let model_id = u32::try_from(reader.read_varint()?)
+            .map_err(|_| ResourceError::LengthLimit("animation model id"))?;
+        animations.extend(parse_animation_group(&mut reader, model_id, expected_format)?);
+    }
+    for _ in 0..reader.read_count("animation controller count")? {
+        let _controller_name = reader.read_string()?;
+        let _controller_hash = reader.read_string()?;
+        controllers.extend(parse_controller_group(&mut reader, expected_format)?);
+    }
+
+    for _ in 0..reader.read_count("texture count")? {
+        let name = reader.read_string()?;
+        let _hash = reader.read_string()?;
+        let data = reader.read_bytes()?;
+        let width = u32::try_from(reader.read_varint()?)
+            .map_err(|_| ResourceError::InvalidImageDimensions)?;
+        let height = u32::try_from(reader.read_varint()?)
+            .map_err(|_| ResourceError::InvalidImageDimensions)?;
+        let _image_format = reader.read_varint()?;
+        let _unknown_flag = reader.read_varint()?;
+        if !data.is_empty() {
+            textures.push(parse_modern_image(name.clone(), data, width, height)?);
+        }
+        for _ in 0..reader.read_count("texture subtexture count")? {
+            let kind = reader.read_varint()?;
+            let _hash = reader.read_string()?;
+            let data = reader.read_bytes()?;
+            let width = u32::try_from(reader.read_varint()?)
+                .map_err(|_| ResourceError::InvalidImageDimensions)?;
+            let height = u32::try_from(reader.read_varint()?)
+                .map_err(|_| ResourceError::InvalidImageDimensions)?;
+            let _image_format = reader.read_varint()?;
+            let _unknown_flag = reader.read_varint()?;
+            let suffix = match kind {
+                1 => "_normal",
+                2 => "_specular",
+                _ => "_special",
+            };
+            if !data.is_empty() {
+                textures.push(parse_modern_image(format!("{name}{suffix}"), data, width, height)?);
+            }
+        }
+    }
+
+    for _ in 0..reader.read_count("shared model count")? {
+        let id = reader.read_varint()?;
+        let start = reader.position();
+        let (model, consumed) = parse_model_record(&bytes[start..], expected_format)?;
+        reader.read_exact(consumed)?;
+        let name = match id {
+            1 => "main",
+            2 => "arm",
+            _ => return Err(ResourceError::InvalidModel("unknown shared model id in format 26+")),
+        };
+        models.push((name.to_owned(), model));
+    }
+
+    let metadata = parse_ysm_metadata(&mut reader, expected_format, Some(&mut textures))?;
+    Ok((YsmResource {
+        format: expected_format,
+        models,
+        textures,
+        animations,
+        controllers,
+        sounds,
+        metadata,
+    }, reader.position()))
+}
+
+fn parse_category_sub_entities(
+    reader: &mut ResourceReader<'_>,
+    bytes: &[u8],
+    format: u32,
+    category: &str,
+    category_id: u32,
+    models: &mut Vec<(String, YsmModel)>,
+    textures: &mut Vec<YsmTexture>,
+    animations: &mut Vec<YsmAnimationInfo>,
+    controllers: &mut Vec<YsmAnimationController>,
+) -> Result<(), ResourceError> {
+    for index in 0..reader.read_count("category sub-entity count")? {
+        let header_name = if format == 26 {
+            Some(reader.read_string()?)
+        } else {
+            None
+        };
+        let animation_model_id = 0x8000_0000u32
+            | (category_id << 20)
+            | u32::try_from(index).map_err(|_| ResourceError::LengthLimit("sub-entity index"))?;
+
+        if reader.read_varint()? != 0 {
+            animations.extend(parse_animation_group(reader, animation_model_id, format)?);
+        }
+        if reader.read_varint()? != 0 {
+            let _controller_hash = reader.read_string()?;
+            controllers.extend(parse_controller_group(reader, format)?);
+        }
+
+        let _texture_hash = reader.read_string()?;
+        let base_data = reader.read_bytes()?;
+        let base_width = u32::try_from(reader.read_varint()?)
+            .map_err(|_| ResourceError::InvalidImageDimensions)?;
+        let base_height = u32::try_from(reader.read_varint()?)
+            .map_err(|_| ResourceError::InvalidImageDimensions)?;
+        let _base_format = reader.read_varint()?;
+        let _base_flag = reader.read_varint()?;
+
+        let mut image_blobs: Vec<(String, Vec<u8>, u32, u32)> = Vec::new();
+        if !base_data.is_empty() {
+            image_blobs.push((String::new(), base_data, base_width, base_height));
+        }
+        for _ in 0..reader.read_count("category subtexture count")? {
+            let kind = reader.read_varint()?;
+            let _hash = reader.read_string()?;
+            let data = reader.read_bytes()?;
+            let width = u32::try_from(reader.read_varint()?)
+                .map_err(|_| ResourceError::InvalidImageDimensions)?;
+            let height = u32::try_from(reader.read_varint()?)
+                .map_err(|_| ResourceError::InvalidImageDimensions)?;
+            let _image_format = reader.read_varint()?;
+            let _unknown_flag = reader.read_varint()?;
+            let suffix = match kind {
+                1 => "_normal",
+                2 => "_specular",
+                _ => "_special",
+            };
+            if !data.is_empty() {
+                image_blobs.push((suffix.to_owned(), data, width, height));
+            }
+        }
+
+        let start = reader.position();
+        let (model, consumed) = parse_model_record(&bytes[start..], format)?;
+        reader.read_exact(consumed)?;
+        let raw_names = if let Some(name) = header_name {
+            vec![name]
+        } else {
+            let mut names = Vec::new();
+            for _ in 0..reader.read_count("category model name count")? {
+                names.push(reader.read_string()?);
+            }
+            names
+        };
+
+        for raw_name in raw_names {
+            let short_name = raw_name.rsplit(':').next().unwrap_or(&raw_name);
+            let model_name = format!("{category}/{short_name}");
+            models.push((model_name.clone(), model.clone()));
+            for (suffix, data, width, height) in &image_blobs {
+                textures.push(parse_modern_image(
+                    format!("{model_name}{suffix}"),
+                    data.clone(),
+                    *width,
+                    *height,
+                )?);
+            }
+        }
+    }
+    Ok(())
 }
 
 fn parse_modern_image(
@@ -875,6 +1093,7 @@ mod format_16_tests {
         varint(&mut data, 0); // no subtextures
         model_record(&mut data);
         varint(&mut data, 1); // sub-entity footer flag
+        varint(&mut data, 1); // modern section marker
         varint(&mut data, 0); // global animation groups
         varint(&mut data, 0); // global controllers
         varint(&mut data, 0); // global textures
@@ -897,6 +1116,7 @@ mod format_16_tests {
         data.extend_from_slice(&16u32.to_le_bytes());
         for _ in 0..4 { varint(&mut data, 0); } // sound/function/language/sub-entity counts
         varint(&mut data, 1); // sub-entity footer
+        varint(&mut data, 1); // modern section marker
         varint(&mut data, 0); // animations
         varint(&mut data, 0); // controllers
         varint(&mut data, 1); // textures
@@ -925,6 +1145,7 @@ mod format_16_tests {
         data.extend_from_slice(&16u32.to_le_bytes());
         for _ in 0..4 { varint(&mut data, 0); } // sounds, functions, languages, sub-entities
         varint(&mut data, 1); // sub-entity footer
+        varint(&mut data, 1); // modern section marker
         varint(&mut data, 1); // animation blob count
         varint(&mut data, 1); // main model id
         string(&mut data, "animation-hash");
@@ -949,6 +1170,7 @@ mod format_16_tests {
         // sounds, functions, language files, sub-entities, then the sub-entity footer
         for _ in 0..4 { data.push(0); }
         data.push(1);
+        data.push(1); // modern section marker
         // animations, controllers, textures and model table
         for _ in 0..4 { data.push(0); }
         // metadata hash and "no metadata" flag
@@ -963,6 +1185,97 @@ mod format_16_tests {
         assert!(resource.controllers.is_empty());
         assert!(resource.sounds.is_empty());
         assert!(resource.metadata.is_none());
+    }
+}
+
+#[cfg(test)]
+mod format_26_plus_tests {
+    use super::*;
+
+    fn varint(out: &mut Vec<u8>, mut value: u64) {
+        while value >= 0x80 { out.push((value as u8) | 0x80); value >>= 7; }
+        out.push(value as u8);
+    }
+    fn string(out: &mut Vec<u8>, value: &str) {
+        varint(out, value.len() as u64);
+        out.extend_from_slice(value.as_bytes());
+    }
+    fn f32le(out: &mut Vec<u8>, value: f32) {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+    fn model_record(out: &mut Vec<u8>) {
+        string(out, "model-sha");
+        varint(out, 1);
+        string(out, "");
+        varint(out, 1);
+        varint(out, 1);
+        for value in [0.0, 0.0, 1.0] { f32le(out, value); }
+        for index in 0..4 {
+            for value in [index as f32, 0.0, 0.0, index as f32, 0.0] {
+                f32le(out, value);
+            }
+        }
+        for _ in 0..3 { varint(out, 0); }
+        string(out, "root");
+        for _ in 0..5 { varint(out, 0); }
+        for _ in 0..6 { f32le(out, 0.0); }
+        string(out, "geometry.test");
+        for value in [64.0, 64.0, 2.0, 2.0] { f32le(out, value); }
+        varint(out, 3);
+        for _ in 0..3 { f32le(out, 0.0); }
+        f32le(out, 1.0);
+        f32le(out, 1.0);
+        varint(out, 0);
+        for _ in 0..3 { varint(out, 0); }
+    }
+    fn empty_modern_tail(out: &mut Vec<u8>) {
+        varint(out, 1); // category resource section marker
+        for _ in 0..4 { varint(out, 0); } // animations, controllers, textures, shared models
+        string(out, "");
+        varint(out, 0); // no metadata
+    }
+
+    #[test]
+    fn parses_format_26_named_vehicle_sub_entities() {
+        let mut data = Vec::new();
+        data.extend_from_slice(&26u32.to_le_bytes());
+        for _ in 0..3 { varint(&mut data, 0); }
+        varint(&mut data, 1);
+        string(&mut data, "minecraft:cart");
+        varint(&mut data, 0);
+        varint(&mut data, 0);
+        string(&mut data, ""); varint(&mut data, 0);
+        for _ in 0..4 { varint(&mut data, 0); }
+        varint(&mut data, 0);
+        model_record(&mut data);
+        varint(&mut data, 0);
+        empty_modern_tail(&mut data);
+
+        let (resource, consumed) = parse_resource_v26_plus(&data, 26).unwrap();
+        assert_eq!(consumed, data.len());
+        assert!(resource.models.iter().any(|(name, _)| name == "vehicle/cart"));
+    }
+
+    #[test]
+    fn parses_format_27_shared_sub_model_name_table() {
+        let mut data = Vec::new();
+        data.extend_from_slice(&27u32.to_le_bytes());
+        for _ in 0..3 { varint(&mut data, 0); }
+        varint(&mut data, 1);
+        varint(&mut data, 0);
+        varint(&mut data, 0);
+        string(&mut data, ""); varint(&mut data, 0);
+        for _ in 0..4 { varint(&mut data, 0); }
+        varint(&mut data, 0);
+        model_record(&mut data);
+        varint(&mut data, 1);
+        string(&mut data, "minecraft:cart");
+        varint(&mut data, 0);
+        empty_modern_tail(&mut data);
+
+        let (resource, consumed) = parse_resource_v26_plus(&data, 27).unwrap();
+        assert_eq!(consumed, data.len());
+        assert!(resource.models.iter().any(|(name, _)| name == "vehicle/cart"));
     }
 }
 
