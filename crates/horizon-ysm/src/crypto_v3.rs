@@ -195,6 +195,10 @@ fn wash_ysm_zstd(input: &[u8]) -> Result<Vec<u8>, DecryptError> {
     }
     let mut data = input.to_vec();
     let fhd = data[4];
+    // Bits 3 and 4 are reserved/unused in the Zstandard frame descriptor.
+    if fhd & 0x18 != 0 {
+        return Err(DecryptError::InvalidZstdFrame("reserved frame-header bits are set"));
+    }
     data[4] = fhd & 0xfb; // YSM toggles the standard checksum bit.
     let fcs_bits = (fhd >> 6) & 3;
     let single_segment = (fhd & 0x20) != 0;
@@ -216,7 +220,7 @@ fn wash_ysm_zstd(input: &[u8]) -> Result<Vec<u8>, DecryptError> {
         let ysm_type = (b0 >> 5) & 3;
         let raw_size = ((b0 & 0x1f) << 16) | b1 | (b2 << 8);
         let compressed_size = raw_size ^ 0xd4e9;
-        if compressed_size > 0x1ffff { return Err(DecryptError::InvalidZstdFrame("block size exceeds Zstandard limit")); }
+        if compressed_size > 0x20000 { return Err(DecryptError::InvalidZstdFrame("block size exceeds the 128 KiB Zstandard limit")); }
         let std_type = match ysm_type {
             0 => 2u32, 1 => 1u32, 2 => return Err(DecryptError::InvalidZstdFrame("reserved block type")),
             3 => 0u32, _ => unreachable!(),
@@ -264,6 +268,45 @@ mod tests {
         let washed = wash_ysm_zstd(&ysm_frame).expect("wash YSM Zstandard frame");
         assert_eq!(&washed[6..9], &[0x19, 0x00, 0x00]);
         assert_eq!(decompress_ysm_zstd(&ysm_frame).expect("decompress frame"), b"abc");
+    }
+
+    #[test]
+    fn restores_compressed_and_rle_block_headers() {
+        // Compressed block, three bytes of block payload.
+        let compressed_size = 3u32;
+        let encoded = compressed_size ^ 0xd4e9;
+        let mut compressed = vec![0x28, 0xb5, 0x2f, 0xfd, 0x20, 0x03];
+        compressed.push(((encoded >> 16) as u8 & 0x1f) | 0x80);
+        compressed.push(encoded as u8);
+        compressed.push((encoded >> 8) as u8);
+        compressed.extend_from_slice(&[0xaa, 0xbb, 0xcc]);
+        let washed = wash_ysm_zstd(&compressed).unwrap();
+        let standard = 1u32 | (2u32 << 1) | (compressed_size << 3);
+        assert_eq!(&washed[6..9], &standard.to_le_bytes()[..3]);
+
+        // RLE block: the block-size field is the decompressed length, while
+        // the encoded block carries exactly one repeated byte.
+        let rle_size = 0x20000u32;
+        let encoded = rle_size ^ 0xd4e9;
+        let mut rle = vec![0x28, 0xb5, 0x2f, 0xfd, 0x20, 0x03];
+        rle.push(((encoded >> 16) as u8 & 0x1f) | 0xa0);
+        rle.push(encoded as u8);
+        rle.push((encoded >> 8) as u8);
+        rle.push(0x5a);
+        let washed = wash_ysm_zstd(&rle).unwrap();
+        let standard = 1u32 | (1u32 << 1) | (rle_size << 3);
+        assert_eq!(&washed[6..9], &standard.to_le_bytes()[..3]);
+        assert_eq!(washed.len(), rle.len());
+    }
+
+    #[test]
+    fn rejects_reserved_zstd_frame_header_bits_and_truncated_blocks() {
+        let mut reserved = vec![0x28, 0xb5, 0x2f, 0xfd, 0x10];
+        reserved.push(0);
+        assert!(matches!(wash_ysm_zstd(&reserved), Err(DecryptError::InvalidZstdFrame(_))));
+
+        let truncated = [0x28, 0xb5, 0x2f, 0xfd, 0x20, 0x03, 0x80];
+        assert!(matches!(wash_ysm_zstd(&truncated), Err(DecryptError::InvalidZstdFrame(_))));
     }
 
     #[test]
