@@ -599,6 +599,7 @@ pub(super) fn load_resources_with_access(
         biomes,
         environment,
         collision,
+        ysm_model,
     } = core;
     let assets = Arc::new(assets);
     let render = Arc::new(render);
@@ -662,6 +663,7 @@ pub(super) fn load_resources_with_access(
         let root_lease = horizon_assets::root_lease::lease_for(&root);
         let vanilla_root = vanilla_root.to_owned();
         let entity_models = entity_models.clone();
+        let ysm_model = ysm_model.clone();
         let rest_progress = progress.clone();
         let progress = progress.clone();
         let handle = std::thread::Builder::new()
@@ -676,6 +678,7 @@ pub(super) fn load_resources_with_access(
                     &behaviour_json,
                     &gameplay_projection,
                     entity_models.as_deref(),
+                    ysm_model.as_deref(),
                     item_defaults.as_ref(),
                     visibility,
                     &progress,
@@ -708,6 +711,7 @@ pub(super) fn load_resources_with_access(
             &behaviour_json,
             &gameplay_projection,
             entity_models.as_deref(),
+            ysm_model.as_deref(),
             item_defaults.as_ref(),
             visibility,
             progress,
