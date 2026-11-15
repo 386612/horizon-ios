@@ -12384,16 +12384,31 @@ fn load_world_rest(
                             converted.clone(),
                             texture_path.clone(),
                         );
-                        let mut animations: Vec<_> = loaded.resource.animations.iter()
-                            .filter(|animation| matches!(animation.model_id, 1 | 3))
-                            .cloned()
-                            .collect();
                         let selected_animation = std::fs::read_to_string(
                             game_root.join("config/ysm/active_animation.txt"),
                         )
                         .ok()
                         .map(|value| value.trim().to_owned())
                         .filter(|value| !value.is_empty());
+                        let has_controllers = !loaded.resource.controllers.is_empty();
+                        let explicit_animation_exists = selected_animation.as_deref().is_some_and(|selected| {
+                            let short_name = selected.strip_prefix("animation.").unwrap_or(selected);
+                            loaded.resource.animations.iter().any(|animation| {
+                                matches!(animation.model_id, 1 | 3)
+                                    && (animation.name == selected || animation.name == short_name)
+                            })
+                        });
+                        // Model id 3 is YSM's "extra" animation bank, not the
+                        // player's default animation bank. Keep it available to
+                        // controllers or an explicit active_animation.txt choice,
+                        // but never autoplay an emote just because it is first.
+                        let mut animations: Vec<_> = loaded.resource.animations.iter()
+                            .filter(|animation| {
+                                matches!(animation.model_id, 1 | 3)
+                                    && (has_controllers || explicit_animation_exists || animation.model_id == 1)
+                            })
+                            .cloned()
+                            .collect();
                         // If no explicit user override is configured, honor the
                         // first animation in the initial state of the first controller.
                         // The renderer evaluates supported numeric transition conditions
