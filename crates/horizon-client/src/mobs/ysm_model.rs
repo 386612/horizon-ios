@@ -396,6 +396,7 @@ struct ControllerRuntimeState {
     current_state_started: f32,
     previous_state_started: f32,
     blend_duration: f32,
+    blend_curve: Vec<(f32, f32)>,
 }
 
 static DEFAULT_CONTROLLER_STATES: std::sync::OnceLock<
@@ -466,6 +467,7 @@ pub fn apply_default_animation(
                 current_state_started: base_context.life_time,
                 previous_state_started: base_context.life_time,
                 blend_duration: 0.0,
+                blend_curve: Vec::new(),
             });
             let controller_context = MolangContext {
                 anim_time: (base_context.life_time - runtime_state.current_state_started).max(0.0),
@@ -473,11 +475,22 @@ pub fn apply_default_animation(
             };
             let next_state = controller_next_state(controller, &runtime_state.current_state, controller_context);
             if next_state != runtime_state.current_state {
-                let blend_duration = controller.states.iter()
+                let target_state = controller.states.iter()
                     .find(|(name, _)| name == &next_state)
-                    .and_then(|(_, state)| state.blend_transition)
-                    .unwrap_or(0.0)
-                    .max(0.0);
+                    .map(|(_, state)| state);
+                let blend_curve = target_state
+                    .map(|state| state.blend_transitions.clone())
+                    .unwrap_or_default();
+                // YSM's blend_transitions is a time/value curve. Its final
+                // time is the transition duration when no scalar duration exists.
+                let curve_duration = blend_curve.iter()
+                    .map(|(time, _)| *time)
+                    .filter(|time| time.is_finite() && *time > 0.0)
+                    .fold(0.0_f32, f32::max);
+                let blend_duration = target_state
+                    .and_then(|state| state.blend_transition)
+                    .filter(|duration| duration.is_finite() && *duration > 0.0)
+                    .unwrap_or(curve_duration);
                 runtime_state.previous_state = (blend_duration > 0.0)
                     .then(|| runtime_state.current_state.clone());
                 runtime_state.previous_state_started = runtime_state.current_state_started;
@@ -485,13 +498,21 @@ pub fn apply_default_animation(
                 runtime_state.current_state_started = base_context.life_time;
                 runtime_state.transition_started = base_context.life_time;
                 runtime_state.blend_duration = blend_duration;
+                runtime_state.blend_curve = blend_curve;
             }
 
-            let progress = if runtime_state.previous_state.is_some() && runtime_state.blend_duration > 0.0 {
-                ((base_context.life_time - runtime_state.transition_started) / runtime_state.blend_duration)
-                    .clamp(0.0, 1.0)
+            let elapsed = (base_context.life_time - runtime_state.transition_started).max(0.0);
+            let linear_progress = if runtime_state.blend_duration > 0.0 {
+                (elapsed / runtime_state.blend_duration).clamp(0.0, 1.0)
             } else {
                 1.0
+            };
+            let progress = if runtime_state.blend_curve.is_empty() {
+                linear_progress
+            } else {
+                sample_blend_transition_curve(&runtime_state.blend_curve, elapsed)
+                    .unwrap_or(linear_progress)
+                    .clamp(0.0, 1.0)
             };
             let previous_state = if progress < 1.0 {
                 runtime_state.previous_state.clone()
@@ -897,6 +918,27 @@ fn append_controller_animations<'a>(
     }
 }
 
+fn sample_blend_transition_curve(curve: &[(f32, f32)], elapsed: f32) -> Option<f32> {
+    let mut points: Vec<_> = curve.iter()
+        .copied()
+        .filter(|(time, value)| time.is_finite() && value.is_finite() && *time >= 0.0)
+        .collect();
+    if points.is_empty() { return None; }
+    points.sort_by(|a, b| a.0.total_cmp(&b.0));
+    if elapsed <= points[0].0 { return Some(points[0].1); }
+    for pair in points.windows(2) {
+        let (from_time, from_value) = pair[0];
+        let (to_time, to_value) = pair[1];
+        if elapsed <= to_time {
+            let span = to_time - from_time;
+            if span <= f32::EPSILON { return Some(to_value); }
+            let t = ((elapsed - from_time) / span).clamp(0.0, 1.0);
+            return Some(from_value + (to_value - from_value) * t);
+        }
+    }
+    points.last().map(|(_, value)| *value)
+}
+
 fn controller_next_state(
     controller: &horizon_ysm::YsmAnimationController,
     current_state: &str,
@@ -1063,6 +1105,16 @@ mod animation_sampling_tests {
         assert_eq!(controller_state_animations(&controller, &running).unwrap()[0].0, "animation.run");
         // A state remains active until one of its own transitions changes it.
         assert_eq!(controller_next_state(&controller, &running, MolangContext::default()), "run");
+    }
+
+    #[test]
+    fn samples_controller_blend_transition_curves() {
+        let curve = [(0.0, 0.0), (0.25, 0.2), (1.0, 1.0)];
+        assert_eq!(sample_blend_transition_curve(&curve, 0.0), Some(0.0));
+        assert_eq!(sample_blend_transition_curve(&curve, 0.125), Some(0.1));
+        assert_eq!(sample_blend_transition_curve(&curve, 0.625), Some(0.6));
+        assert_eq!(sample_blend_transition_curve(&curve, 2.0), Some(1.0));
+        assert_eq!(sample_blend_transition_curve(&[], 0.5), None);
     }
 
     #[test]
