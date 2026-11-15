@@ -786,6 +786,22 @@ fn read_molang_triplet(
 mod format_16_tests {
     use super::*;
 
+    fn f32le(out: &mut Vec<u8>, value: f32) {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+    fn animation_record(out: &mut Vec<u8>, format: u32) {
+        string(out, "animation.test");
+        f32le(out, 40.0);
+        varint(out, 1);
+        if format > 9 {
+            varint(out, 0); varint(out, 0); // compatibility flags
+            varint(out, 0); // blend weight count
+            varint(out, 0); // trailing compatibility field
+        }
+        varint(out, 0); // bones
+        varint(out, 0); // timeline
+    }
+
     fn varint(out: &mut Vec<u8>, mut value: u64) {
         while value >= 0x80 { out.push((value as u8) | 0x80); value >>= 7; }
         out.push(value as u8);
@@ -822,6 +838,29 @@ mod format_16_tests {
         assert_eq!(resource.textures.len(), 1);
         assert_eq!(resource.textures[0].name, "main");
         assert_eq!(resource.textures[0].png_bytes, png);
+    }
+
+    #[test]
+    fn parses_modern_animation_groups_and_format_specific_blend_fields() {
+        let mut data = Vec::new();
+        data.extend_from_slice(&16u32.to_le_bytes());
+        for _ in 0..4 { varint(&mut data, 0); } // sounds, functions, languages, sub-entities
+        varint(&mut data, 1); // sub-entity footer
+        varint(&mut data, 1); // animation blob count
+        varint(&mut data, 1); // main model id
+        string(&mut data, "animation-hash");
+        varint(&mut data, 1); // animation record count
+        animation_record(&mut data, 16);
+        varint(&mut data, 0); // controllers
+        varint(&mut data, 0); // textures
+        varint(&mut data, 0); // models
+        string(&mut data, ""); varint(&mut data, 0); // no metadata
+
+        let (resource, consumed) = parse_resource_v16_v25(&data, 16).unwrap();
+        assert_eq!(consumed, data.len());
+        assert_eq!(resource.animations.len(), 1);
+        assert_eq!(resource.animations[0].name, "animation.test");
+        assert_eq!(resource.animations[0].blend_weight, None);
     }
 
     #[test]
@@ -965,6 +1004,44 @@ mod format_10_tests {
         assert_eq!(resource.sounds[0].name, "sound.test");
         assert_eq!(resource.sounds[0].data, b"ogg");
         assert!(resource.metadata.is_none());
+    }
+}
+
+#[cfg(test)]
+mod format_4_animation_group_tests {
+    use super::*;
+
+    fn varint(out: &mut Vec<u8>, mut value: u64) {
+        while value >= 0x80 { out.push((value as u8) | 0x80); value >>= 7; }
+        out.push(value as u8);
+    }
+    fn string(out: &mut Vec<u8>, value: &str) {
+        varint(out, value.len() as u64);
+        out.extend_from_slice(value.as_bytes());
+    }
+
+    #[test]
+    fn parses_legacy_animation_blob_groups() {
+        let mut data = Vec::new();
+        data.extend_from_slice(&4u32.to_le_bytes());
+        varint(&mut data, 0); // prefix
+        varint(&mut data, 0); // models
+        varint(&mut data, 1); // animation blobs
+        varint(&mut data, 1); // main model id
+        varint(&mut data, 0); // legacy unknown
+        varint(&mut data, 1); // animation records in blob
+        string(&mut data, "animation.idle");
+        data.extend_from_slice(&20.0f32.to_le_bytes());
+        varint(&mut data, 1); // loop
+        varint(&mut data, 0); // bones
+        varint(&mut data, 0); // timeline
+        for _ in 0..5 { varint(&mut data, 0); } // textures, extras and three hash tables
+        string(&mut data, ""); varint(&mut data, 0); // no metadata
+
+        let (resource, consumed) = parse_resource_v4_v15(&data, 4).unwrap();
+        assert_eq!(consumed, data.len());
+        assert_eq!(resource.animations.len(), 1);
+        assert_eq!(resource.animations[0].name, "animation.idle");
     }
 }
 
