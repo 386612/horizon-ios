@@ -210,6 +210,16 @@ fn load_player_ysm(game_root: &std::path::Path) -> Option<LoadedPlayerYsm> {
             paths.swap(0, index);
         }
     }
+    // Only one player model is active at a time. Remove the previous
+    // extraction before atlas discovery so deleted/renamed models do not
+    // leave stale sprites consuming atlas layers.
+    let texture_cache = game_root.join("config/ysm/models/.textures");
+    if texture_cache.exists() {
+        if let Err(error) = std::fs::remove_dir_all(&texture_cache) {
+            log::warn!("Could not clear extracted YSM textures: {error}");
+            return None;
+        }
+    }
     for path in paths {
         let loaded = match horizon_ysm::load_ysm_file(&path) {
             Ok(loaded) => loaded,
