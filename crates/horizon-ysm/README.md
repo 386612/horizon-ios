@@ -58,7 +58,7 @@ HORIZON_YSM_TEST_FILE=/path/to/1.ysm cargo test --locked -p horizon-ysm loads_ex
 The test decrypts the container, parses the resource tables, and checks that a
 main model and at least one texture were recovered.
 
-For formats 4–25, the loader also reads the YSM metadata footer (model name,
+For formats 4 and newer, the loader also reads the YSM metadata footer (model name,
 tips, license, authors, links, scaling values, default texture, preview
 animation, and extra-animation declarations). The default texture and preview
 animation are used when present; `active_animation.txt` can override the
