@@ -330,7 +330,7 @@ static DEFAULT_ANIMATIONS: std::sync::OnceLock<
 > = std::sync::OnceLock::new();
 
 static DEFAULT_CONTROLLER_STATES: std::sync::OnceLock<
-    std::sync::Mutex<HashMap<(String, u32), String>>,
+    std::sync::Mutex<HashMap<(String, u32, String), String>>,
 > = std::sync::OnceLock::new();
 
 /// Registers decoded animation tracks and controller state graphs for a YSM avatar.
@@ -384,28 +384,39 @@ pub fn apply_default_animation(
         is_passenger: mob.extra.passenger,
         ..MolangContext::default()
     };
-    let selected = runtime.controllers.first().and_then(|controller| {
+    let mut selected_animations: Vec<&YsmAnimationInfo> = Vec::new();
+    if !runtime.controllers.is_empty() {
         let registry = DEFAULT_CONTROLLER_STATES.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
         let mut states = registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let key = (texture.to_owned(), mob.id);
-        let current_state = states.get(&key).map(String::as_str)
-            .unwrap_or(controller.initial_state.as_str());
-        let next_state = controller_next_state(controller, current_state, base_context);
-        states.insert(key, next_state.clone());
-        controller_animation_name(controller, &next_state)
-    }).and_then(|name| runtime.animations.iter().find(|animation| {
-        animation.name.as_str() == name
-            || animation.name.as_str() == name.strip_prefix("animation.").unwrap_or(name)
-    }));
-    let animation = selected.unwrap_or(&runtime.animations[0]);
-    let duration = animation.duration_ticks / 20.0;
-    let mut time = base_context.life_time;
-    if duration > 0.0 && duration.is_finite() {
-        time = match animation.loop_mode {
-            1 => time.rem_euclid(duration),
-            _ => time.min(duration),
-        };
+        for controller in &runtime.controllers {
+            let key = (texture.to_owned(), mob.id, controller.name.clone());
+            let current_state = states.get(&key).map(String::as_str)
+                .unwrap_or(controller.initial_state.as_str());
+            let next_state = controller_next_state(controller, current_state, base_context);
+            states.insert(key, next_state.clone());
+            let Some(name) = controller_animation_name(controller, &next_state) else { continue; };
+            let Some(animation) = runtime.animations.iter().find(|animation| {
+                animation.name.as_str() == name
+                    || animation.name.as_str() == name.strip_prefix("animation.").unwrap_or(name)
+            }) else { continue; };
+            if !selected_animations.iter().any(|selected| selected.name == animation.name) {
+                selected_animations.push(animation);
+            }
+        }
     }
+    if selected_animations.is_empty() {
+        selected_animations.push(&runtime.animations[0]);
+    }
+
+    for animation in selected_animations {
+        let duration = animation.duration_ticks / 20.0;
+        let mut time = base_context.life_time;
+        if duration > 0.0 && duration.is_finite() {
+            time = match animation.loop_mode {
+                1 => time.rem_euclid(duration),
+                _ => time.min(duration),
+            };
+        }
     for bone in &animation.bones {
         for (channel_index, channel) in bone.channels.iter().enumerate() {
             let Some(value) = sample_numeric_channel_with_context(
@@ -434,6 +445,8 @@ pub fn apply_default_animation(
             }
         }
     }
+    }
+
 }
 
 #[derive(Clone, Copy, Debug, Default)]
