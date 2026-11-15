@@ -809,7 +809,7 @@ mod ysm_texture_path_tests {
         );
         assert_eq!(
             ysm_texture_resource_path(std::path::Path::new("A model.ysm"), "body/diffuse"),
-            "entity/player/ysm/A%20model%2Eysm/body%2Fdiffuse",
+            "entity/player/ysm/A%20model/body%2Fdiffuse",
         );
         assert_eq!(
             ysm_texture_resource_path(model, "哥斯拉"),
