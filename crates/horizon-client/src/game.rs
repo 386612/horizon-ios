@@ -12385,6 +12385,7 @@ fn load_world_rest(
                         log::info!("Loaded YSM player model from {}", entry.path.display());
                         // Stop after the first valid model (or the explicitly selected
                         // active.txt entry); otherwise later files would overwrite it.
+                        break;
                     }
                 }
                 Err(error) => log::warn!("Could not scan config/ysm/models: {error}"),
