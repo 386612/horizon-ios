@@ -365,9 +365,7 @@ pub fn parse_resource_v16_v25(
         };
         models.push((model_name, model));
     }
-    if reader.read_varint()? != 1 {
-        return Err(ResourceError::InvalidModel("invalid modern sub-entity footer flag"));
-    }
+    let _footer_flag = reader.read_varint()?;
 
     for _ in 0..reader.read_count("animation blob count")? {
         let model_id = u32::try_from(reader.read_varint()?)
@@ -643,27 +641,27 @@ fn parse_controller_group(
         let initial_state = reader.read_string()?;
         let mut states = Vec::new();
         for _ in 0..reader.read_count("controller state count")? {
-        let state_name = reader.read_string()?;
-        let mut state = YsmControllerState::default();
-        for _ in 0..reader.read_count("controller animation count")? {
-            state.animations.push((reader.read_string()?, reader.read_string()?));
-        }
-        for _ in 0..reader.read_count("controller transition count")? {
-            state.transitions.push((reader.read_string()?, reader.read_string()?));
-        }
-        for _ in 0..reader.read_count("controller on-entry count")? {
-            state.on_entry.push(reader.read_string()?);
-        }
-        for _ in 0..reader.read_count("controller on-exit count")? {
-            state.on_exit.push(reader.read_string()?);
-        }
-        if reader.read_varint()? != 0 {
-            state.blend_transition = Some(reader.read_f32()?);
-        } else {
-            for _ in 0..reader.read_count("controller blend transition count")? {
-                state.blend_transitions.push((reader.read_f32()?, reader.read_f32()?));
+            let state_name = reader.read_string()?;
+            let mut state = YsmControllerState::default();
+            for _ in 0..reader.read_count("controller animation count")? {
+                state.animations.push((reader.read_string()?, reader.read_string()?));
             }
-        }
+            for _ in 0..reader.read_count("controller transition count")? {
+                state.transitions.push((reader.read_string()?, reader.read_string()?));
+            }
+            for _ in 0..reader.read_count("controller on-entry count")? {
+                state.on_entry.push(reader.read_string()?);
+            }
+            for _ in 0..reader.read_count("controller on-exit count")? {
+                state.on_exit.push(reader.read_string()?);
+            }
+            if reader.read_varint()? != 0 {
+                state.blend_transition = Some(reader.read_f32()?);
+            } else {
+                for _ in 0..reader.read_count("controller blend transition count")? {
+                    state.blend_transitions.push((reader.read_f32()?, reader.read_f32()?));
+                }
+            }
             state.blend_via_shortest_path = reader.read_varint()? != 0;
             if format > 26 {
                 for _ in 0..reader.read_count("controller sound effect count")? {
