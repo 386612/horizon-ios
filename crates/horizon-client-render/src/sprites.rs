@@ -227,6 +227,11 @@ pub(crate) fn resample(frame: &[u8], from: u32, to: u32) -> Vec<u8> {
     }
     out
 }
+fn is_external_texture_resource(name: &str) -> bool {
+    name.starts_with("horizon_cit:")
+        || name.starts_with("minecraft:entity/player/ysm/")
+}
+
 impl Sprites {
     /// Sprites that reuse textures decoded by an earlier launch, kept in a
     /// cache file in `root`.
@@ -478,10 +483,10 @@ impl Sprites {
     }
 
     fn load(&mut self, root: &Path, name: &str) -> Result<u32> {
-        // Custom Item Textures' files are outside `textures/`, which the disk cache's
-        // fingerprint covers: like `insert_file`'s, they skip it.
-        let cit = name.starts_with("horizon_cit:");
-        let disk = self.disk.as_mut().filter(|_| !cit);
+        // CIT and YSM user textures live outside `assets/*/textures/`, which
+        // the disk cache fingerprint covers. Always decode those from their
+        // current files so changing a local YSM model cannot reuse stale pixels.
+        let disk = self.disk.as_mut().filter(|_| !is_external_texture_resource(name));
         let cached = disk.as_ref().and_then(|d| d.get(name)).cloned();
         let decoded = match cached {
             Some(decoded) => decoded,
@@ -1838,5 +1843,19 @@ mod tests {
         let stepped = test_clip(16, 0, r#"{"frametime":4}"#);
         assert_eq!(stepped.blend(1), blend(0, 0, 0));
         assert_eq!(stepped.blend(5), blend(1, 1, 0));
+    }
+}
+
+
+#[cfg(test)]
+mod external_texture_cache_tests {
+    use super::is_external_texture_resource;
+
+    #[test]
+    fn bypasses_disk_cache_for_cit_and_user_ysm_textures_only() {
+        assert!(is_external_texture_resource("horizon_cit:blocks/connected/stone"));
+        assert!(is_external_texture_resource("minecraft:entity/player/ysm/1/aru"));
+        assert!(!is_external_texture_resource("minecraft:block/stone"));
+        assert!(!is_external_texture_resource("minecraft:entity/zombie/zombie"));
     }
 }
