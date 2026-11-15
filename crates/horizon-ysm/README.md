@@ -18,8 +18,9 @@ for YSM formats 4–15. The Horizon client converts the main model and extracted
 base texture into its avatar renderer. Numeric keyframes can drive the metadata preview animation (or the first
 available animation when no preview is declared). Numeric Molang expressions
 support arithmetic, common math functions, and animation-time queries. Legacy
-controller initial-state animations are selected when available, but transition
-conditions and event execution are not yet implemented. Formats above 15 (the modern sub-entity resource layout), controller-driven runtime state changes, extra-animation UI, and the full first-person texture path are not yet complete. The separate
+controller initial-state animations and transitions with supported numeric
+Molang conditions can select tracks. Full entity query context, event execution,
+and blend-transition behavior are not yet implemented. Formats above 15 (the modern sub-entity resource layout), controller-driven runtime state changes, extra-animation UI, and the full first-person texture path are not yet complete. The separate
 YSM arm geometry is loaded when available.
 
 ## Direct `.ysm` model storage
@@ -45,7 +46,7 @@ tips, license, authors, links, scaling values, default texture, preview
 animation, and extra-animation declarations). The default texture and preview
 animation are used when present; `active_animation.txt` can override the
 preview animation by exact animation name. This metadata support does not yet provide
-the full in-game extra-animation selector or animation-controller behavior.
+the full in-game extra-animation selector or full animation-controller behavior.
 
 ## Upstream algorithm and attribution
 

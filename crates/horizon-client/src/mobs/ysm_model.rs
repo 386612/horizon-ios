@@ -340,7 +340,7 @@ pub fn register_default_animations(
 
 /// Applies the selected preview/default animation for the YSM model. Numeric keyframes
 /// are interpolated; expression-valued Molang components remain available in
-/// the parsed resource but are not evaluated by this numeric fallback.
+/// the parser; supported arithmetic and common math functions are evaluated.
 pub fn apply_default_animation(
     texture: &str,
     age_ticks: f32,
