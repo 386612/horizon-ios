@@ -2,8 +2,8 @@
 use std::path::Path;
 
 use crate::{
-    decrypt_container, parse_header, parse_resource_v4_v15, parse_resource_v16_v25, DecryptError, HeaderError,
-    ResourceError, YsmHeader, YsmResource,
+    decrypt_container, parse_header, parse_resource_v4_v15, parse_resource_v16_v25,
+    parse_resource_v26_plus, DecryptError, HeaderError, ResourceError, YsmHeader, YsmResource,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -27,7 +27,7 @@ impl std::fmt::Display for LoadError {
             Self::Header(e) => write!(f, "invalid YSM header: {e}"),
             Self::Decrypt(e) => write!(f, "could not decrypt YSM file: {e}"),
             Self::Resource(e) => write!(f, "could not parse YSM resources: {e}"),
-            Self::UnsupportedFormat(v) => write!(f, "YSM format {v} is not supported by the resource decoder (supported: 4-25)"),
+            Self::UnsupportedFormat(v) => write!(f, "YSM format {v} is not supported by the resource decoder (supported: 4 and newer)"),
         }
     }
 }
@@ -43,14 +43,16 @@ pub fn load_ysm_file(path: impl AsRef<Path>) -> Result<LoadedYsm, LoadError> {
 
 pub fn load_ysm_bytes(bytes: &[u8]) -> Result<LoadedYsm, LoadError> {
     let header = parse_header(bytes)?;
-    if !(4..=25).contains(&header.format) {
+    if header.format < 4 {
         return Err(LoadError::UnsupportedFormat(header.format));
     }
     let decompressed = decrypt_container(bytes)?;
     let (resource, _consumed) = if header.format <= 15 {
         parse_resource_v4_v15(&decompressed, header.format)?
-    } else {
+    } else if header.format <= 25 {
         parse_resource_v16_v25(&decompressed, header.format)?
+    } else {
+        parse_resource_v26_plus(&decompressed, header.format)?
     };
     Ok(LoadedYsm { header, resource })
 }
@@ -124,5 +126,31 @@ mod directory_load_tests {
         let entries = load_ysm_directory(&root).unwrap();
         assert!(entries.is_empty());
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+
+#[cfg(test)]
+mod external_fixture_tests {
+    use super::*;
+
+    /// Set HORIZON_YSM_TEST_FILE to a real .ysm path to run a decrypt + parse
+    /// smoke test against that sample (for example the supplied 1.ysm file).
+    #[test]
+    fn loads_external_ysm_fixture_when_configured() {
+        let Some(path) = std::env::var_os("HORIZON_YSM_TEST_FILE") else {
+            return;
+        };
+        let loaded = load_ysm_file(path).expect("decrypt and parse external YSM fixture");
+        assert!(loaded.resource.models.iter().any(|(name, _)| name == "main"));
+        assert!(!loaded.resource.textures.is_empty());
+        eprintln!(
+            "YSM fixture OK: format={}, models={}, textures={}, animations={}, controllers={}",
+            loaded.resource.format,
+            loaded.resource.models.len(),
+            loaded.resource.textures.len(),
+            loaded.resource.animations.len(),
+            loaded.resource.controllers.len(),
+        );
     }
 }
