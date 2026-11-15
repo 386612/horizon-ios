@@ -748,6 +748,15 @@ fn read_molang_triplet(
 mod format_16_tests {
     use super::*;
 
+    fn varint(out: &mut Vec<u8>, mut value: u64) {
+        while value >= 0x80 { out.push((value as u8) | 0x80); value >>= 7; }
+        out.push(value as u8);
+    }
+    fn string(out: &mut Vec<u8>, value: &str) {
+        varint(out, value.len() as u64);
+        out.extend_from_slice(value.as_bytes());
+    }
+
     #[test]
     fn parses_modern_png_texture_files() {
         let png = encode_rgba_texture("main", 1, 1, &[255, 0, 0, 255]).unwrap().png_bytes;
