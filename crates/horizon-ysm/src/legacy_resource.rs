@@ -317,9 +317,15 @@ pub fn parse_resource_v16_v25(
     // Format 16-25 has one named sub-entity section. Its model is duplicated
     // in the final model table, where ids 1 and 2 identify main and arm.
     for _ in 0..reader.read_count("sub-entity count")? {
-        let _sub_entity_name = reader.read_string()?;
+        let raw_sub_entity_name = reader.read_string()?;
+        let sub_entity_name = raw_sub_entity_name.rsplit(':').next().unwrap_or(&raw_sub_entity_name);
+        let sub_entity_model_id = match sub_entity_name {
+            "main" => 1,
+            "arm" => 2,
+            _ => 3,
+        };
         if reader.read_varint()? != 0 {
-            animations.extend(parse_animation_group(&mut reader, 1, expected_format)?);
+            animations.extend(parse_animation_group(&mut reader, sub_entity_model_id, expected_format)?);
         }
         if reader.read_varint()? != 0 {
             let _controller_hash = reader.read_string()?;
@@ -334,7 +340,7 @@ pub fn parse_resource_v16_v25(
         let _image_format = reader.read_varint()?;
         let _unknown_flag = reader.read_varint()?;
         if !texture_data.is_empty() {
-            textures.push(parse_modern_image(_sub_entity_name.clone(), texture_data, texture_width, texture_height)?);
+            textures.push(parse_modern_image(sub_entity_name.to_owned(), texture_data, texture_width, texture_height)?);
         }
         for _ in 0..reader.read_count("sub-entity subtexture count")? {
             let kind = reader.read_varint()?;
@@ -352,16 +358,16 @@ pub fn parse_resource_v16_v25(
                     2 => "_specular",
                     _ => "_special",
                 };
-                textures.push(parse_modern_image(format!("{_sub_entity_name}{suffix}"), data, width, height)?);
+                textures.push(parse_modern_image(format!("{sub_entity_name}{suffix}"), data, width, height)?);
             }
         }
         let start = reader.position();
         let (model, consumed) = parse_model_record(&bytes[start..], expected_format)?;
         reader.read_exact(consumed)?;
-        let model_name = if matches!(_sub_entity_name.as_str(), "main" | "arm") {
-            _sub_entity_name.clone()
+        let model_name = if matches!(sub_entity_name, "main" | "arm") {
+            sub_entity_name.to_owned()
         } else {
-            format!("subentity/{_sub_entity_name}")
+            format!("subentity/{sub_entity_name}")
         };
         models.push((model_name, model));
     }
