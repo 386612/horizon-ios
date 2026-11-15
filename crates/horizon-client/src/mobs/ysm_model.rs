@@ -1,6 +1,6 @@
 //! Conversion of decoded YSM geometry into Horizon's hierarchical mob model.
 use super::{Part, Polygon};
-use horizon_ysm::{YsmBone, YsmModel};
+use horizon_ysm::YsmModel;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -179,7 +179,7 @@ pub fn convert_ysm_model(model: &YsmModel) -> Result<Part, YsmModelError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use horizon_ysm::{YsmCube, YsmFace, YsmVertex};
+    use horizon_ysm::{YsmBone, YsmCube, YsmFace, YsmVertex};
 
     fn model(bones: Vec<YsmBone>) -> YsmModel {
         YsmModel {
