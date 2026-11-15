@@ -408,7 +408,11 @@ pub fn apply_default_animation(
                 previous_state_started: base_context.life_time,
                 blend_duration: 0.0,
             });
-            let next_state = controller_next_state(controller, &runtime_state.current_state, base_context);
+            let controller_context = MolangContext {
+                anim_time: (base_context.life_time - runtime_state.current_state_started).max(0.0),
+                ..base_context
+            };
+            let next_state = controller_next_state(controller, &runtime_state.current_state, controller_context);
             if next_state != runtime_state.current_state {
                 let blend_duration = controller.states.iter()
                     .find(|(name, _)| name == &next_state)
