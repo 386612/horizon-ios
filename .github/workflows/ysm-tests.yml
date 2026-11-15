@@ -33,4 +33,4 @@ jobs:
       - name: Test the YSM parser
         run: cargo test --locked -p horizon-ysm
       - name: Test YSM to Horizon model conversion
-        run: cargo test --locked -p horizon-client --lib --no-default-features ysm_model::tests
+        run: cargo test --locked -p horizon-client-lib --lib --no-default-features ysm_model::tests
