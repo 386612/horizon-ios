@@ -385,7 +385,9 @@ pub fn parse_resource_v16_v26(
             .map_err(|_| ResourceError::InvalidImageDimensions)?;
         let _image_format = reader.read_varint()?;
         let _unknown_flag = reader.read_varint()?;
-        textures.push(parse_modern_image(name.clone(), data, width, height)?);
+        if !data.is_empty() {
+            textures.push(parse_modern_image(name.clone(), data, width, height)?);
+        }
         for _ in 0..reader.read_count("texture subtexture count")? {
             let kind = reader.read_varint()?;
             let _hash = reader.read_string()?;
@@ -401,7 +403,9 @@ pub fn parse_resource_v16_v26(
                 2 => "_specular",
                 _ => "_special",
             };
-            textures.push(parse_modern_image(format!("{name}{suffix}"), data, width, height)?);
+            if !data.is_empty() {
+                textures.push(parse_modern_image(format!("{name}{suffix}"), data, width, height)?);
+            }
         }
     }
 
@@ -576,8 +580,10 @@ fn parse_ysm_metadata(
                 .map_err(|_| ResourceError::InvalidImageDimensions)?;
             let _image_format = reader.read_varint()?;
             let _unknown_flag = reader.read_varint()?;
-            if let Some(textures) = textures.as_deref_mut() {
-                textures.push(parse_modern_image(format!("avatar/{name}"), data, width, height)?);
+            if !data.is_empty() {
+                if let Some(textures) = textures.as_deref_mut() {
+                    textures.push(parse_modern_image(format!("avatar/{name}"), data, width, height)?);
+                }
             }
         }
         if !gui_foreground.is_empty() || !gui_background.is_empty() {
@@ -590,8 +596,10 @@ fn parse_ysm_metadata(
                     .map_err(|_| ResourceError::InvalidImageDimensions)?;
                 let _image_format = reader.read_varint()?;
                 let _unknown_flag = reader.read_varint()?;
-                if let Some(textures) = textures.as_deref_mut() {
-                    textures.push(parse_modern_image(format!("background/{name}"), data, width, height)?);
+                if !data.is_empty() {
+                    if let Some(textures) = textures.as_deref_mut() {
+                        textures.push(parse_modern_image(format!("background/{name}"), data, width, height)?);
+                    }
                 }
             }
         }
