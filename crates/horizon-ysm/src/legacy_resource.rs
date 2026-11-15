@@ -613,9 +613,10 @@ fn parse_category_sub_entities(
         if reader.read_varint()? != 0 {
             animations.extend(parse_animation_group(reader, animation_model_id, format)?);
         }
+        let mut entity_controllers = Vec::new();
         if reader.read_varint()? != 0 {
             let _controller_hash = reader.read_string()?;
-            controllers.extend(parse_controller_group(reader, format)?);
+            entity_controllers = parse_controller_group(reader, format)?;
         }
 
         let _texture_hash = reader.read_string()?;
@@ -668,6 +669,12 @@ fn parse_category_sub_entities(
             let short_name = raw_name.rsplit(':').next().unwrap_or(&raw_name);
             let model_name = format!("{category}/{short_name}");
             models.push((model_name.clone(), model.clone()));
+            // Preserve category-local controllers for future vehicle/projectile
+            // rendering, but namespace them so the player runtime can exclude them.
+            for mut controller in entity_controllers.iter().cloned() {
+                controller.name = format!("{model_name}/{}", controller.name);
+                controllers.push(controller);
+            }
             for (suffix, data, width, height) in &image_blobs {
                 textures.push(parse_modern_image(
                     format!("{model_name}{suffix}"),
