@@ -37,6 +37,12 @@ Horizon creates this directory and discovers `.ysm` files directly. Without
 `active.txt`, it selects the first valid file in filename order. No `.hmod`
 wrapper is required.
 
+For formats 4–9, the loader also reads the YSM metadata footer (model name,
+tips, license, authors, links, scaling values, default texture, preview
+animation, and extra-animation declarations). The default texture and preview
+animation are used when present. This metadata support does not yet provide
+the full in-game extra-animation selector or animation-controller behavior.
+
 ## Upstream algorithm and attribution
 
 The Crypto v3 pipeline follows the public OpenYSM/YSMParser implementation.
