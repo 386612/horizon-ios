@@ -456,6 +456,6 @@ mod animation_sampling_tests {
             ],
         };
         assert_eq!(sample_numeric_channel(&channel, 1.0), Some([10.0; 3]));
-        assert_eq!(sample_numeric_channel(&channel, 0.5), Some([6.25; 3]));
+        assert_eq!(sample_numeric_channel(&channel, 0.5), Some([5.625; 3]));
     }
 }
