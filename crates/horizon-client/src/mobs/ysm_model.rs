@@ -352,31 +352,12 @@ pub fn apply_default_animation(
     if runtime.animations.is_empty() { return; }
 
     let life_time = age_ticks / 20.0;
-    let mut selected = None;
-    if let Some(controller) = runtime.controllers.first() {
-        let mut state_name = controller.initial_state.as_str();
-        if let Some((_, state)) = controller.states.iter()
-            .find(|(name, _)| name == state_name)
-        {
-            // Evaluate supported numeric Molang transition conditions in declaration order.
-            // The serialized pair is (target_state, Molang_condition), matching
-            // Bedrock's transition object where each target maps to its condition.
-            for (target, condition) in &state.transitions {
-                if eval_molang(condition, life_time).is_some_and(|value| value != 0.0) {
-                    state_name = target;
-                    break;
-                }
-            }
-        }
-        if let Some((_, state)) = controller.states.iter().find(|(name, _)| name == state_name) {
-            if let Some((animation_name, _)) = state.animations.first() {
-                selected = runtime.animations.iter().find(|animation| {
-                    animation.name.as_str() == animation_name.as_str()
-                        || animation.name.as_str() == animation_name.strip_prefix("animation.").unwrap_or(animation_name)
-                });
-            }
-        }
-    }
+    let selected = runtime.controllers.first()
+        .and_then(|controller| controller_animation_name(controller, life_time))
+        .and_then(|name| runtime.animations.iter().find(|animation| {
+            animation.name.as_str() == name
+                || animation.name.as_str() == name.strip_prefix("animation.").unwrap_or(name)
+        }));
     let animation = selected.unwrap_or(&runtime.animations[0]);
     let duration = animation.duration_ticks / 20.0;
     let mut time = life_time;
@@ -617,6 +598,26 @@ impl MolangParser {
     }
 }
 
+fn controller_animation_name<'a>(
+    controller: &'a horizon_ysm::YsmAnimationController,
+    query_time: f32,
+) -> Option<&'a str> {
+    let mut state_name = controller.initial_state.as_str();
+    if let Some((_, state)) = controller.states.iter().find(|(name, _)| name == state_name) {
+        // Serialized transitions are (target state, condition), in declaration order.
+        for (target, condition) in &state.transitions {
+            if eval_molang(condition, query_time).is_some_and(|value| value != 0.0) {
+                state_name = target;
+                break;
+            }
+        }
+    }
+    controller.states.iter()
+        .find(|(name, _)| name == state_name)
+        .and_then(|(_, state)| state.animations.first())
+        .map(|(name, _)| name.as_str())
+}
+
 fn eval_molang(expression: &str, anim_time: f32) -> Option<f32> {
     let mut parser = MolangParser { tokens: tokenize_molang(expression)?, cursor: 0, anim_time };
     let value = parser.expression()?;
@@ -705,6 +706,27 @@ mod animation_sampling_tests {
             keyframes: vec![frame(0.0, 2.0, 1), frame(1.0, 10.0, 0)],
         };
         assert_eq!(sample_numeric_channel(&step, 0.5), Some([2.0; 3]));
+    }
+
+    #[test]
+    fn selects_controller_initial_or_transition_animation() {
+        let controller = horizon_ysm::YsmAnimationController {
+            name: "controller.test".into(),
+            initial_state: "idle".into(),
+            states: vec![
+                ("idle".into(), horizon_ysm::YsmControllerState {
+                    animations: vec![("animation.idle".into(), String::new())],
+                    transitions: vec![("run".into(), "query.anim_time > 1".into())],
+                    ..Default::default()
+                }),
+                ("run".into(), horizon_ysm::YsmControllerState {
+                    animations: vec![("animation.run".into(), String::new())],
+                    ..Default::default()
+                }),
+            ],
+        };
+        assert_eq!(controller_animation_name(&controller, 0.5), Some("animation.idle"));
+        assert_eq!(controller_animation_name(&controller, 1.5), Some("animation.run"));
     }
 
     #[test]
