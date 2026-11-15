@@ -1249,8 +1249,18 @@ mod format_26_plus_tests {
         for _ in 0..3 { varint(&mut data, 0); }
         varint(&mut data, 1);
         string(&mut data, "minecraft:cart");
-        varint(&mut data, 0);
-        varint(&mut data, 0);
+        varint(&mut data, 0); // no local animations
+        varint(&mut data, 1); // local controller
+        string(&mut data, "controller-hash");
+        varint(&mut data, 1); // controller count
+        string(&mut data, "controller.animation.cart");
+        string(&mut data, "default");
+        varint(&mut data, 1); // state count
+        string(&mut data, "default");
+        for _ in 0..4 { varint(&mut data, 0); } // animations, transitions, entry, exit
+        varint(&mut data, 0); // no direct blend transition
+        varint(&mut data, 0); // no blend transition map
+        varint(&mut data, 0); // shortest-path blending off
         string(&mut data, ""); varint(&mut data, 0);
         for _ in 0..4 { varint(&mut data, 0); }
         varint(&mut data, 0);
@@ -1261,6 +1271,10 @@ mod format_26_plus_tests {
         let (resource, consumed) = parse_resource_v26_plus(&data, 26).unwrap();
         assert_eq!(consumed, data.len());
         assert!(resource.models.iter().any(|(name, _)| name == "vehicle/cart"));
+        assert_eq!(
+            resource.controllers[0].name,
+            "vehicle/cart/controller.animation.cart"
+        );
     }
 
     #[test]
