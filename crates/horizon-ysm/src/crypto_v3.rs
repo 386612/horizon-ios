@@ -242,6 +242,13 @@ fn wash_ysm_zstd(input: &[u8]) -> Result<Vec<u8>, DecryptError> {
 mod tests {
     use super::*;
 
+    fn decode_hex(value: &str) -> Vec<u8> {
+        value.as_bytes().chunks_exact(2).map(|pair| {
+            let pair = std::str::from_utf8(pair).unwrap();
+            u8::from_str_radix(pair, 16).unwrap()
+        }).collect()
+    }
+
     #[test]
     fn ysm_xchacha_key_setup_uses_the_initial_variable_round_count() {
         let key = [0x42; 32];
@@ -254,15 +261,15 @@ mod tests {
         // the initial YSM round count into HChaCha as well as the stream cipher.
         assert_eq!(
             state10[4..12].iter().flat_map(|word| word.to_le_bytes()).collect::<Vec<_>>(),
-            hex_bytes("3392647fd3f84513943ee44214b70a28f46539d36463f0babc7eb47b69e742e2"),
+            decode_hex("3392647fd3f84513943ee44214b70a28f46539d36463f0babc7eb47b69e742e2"),
         );
         assert_eq!(
             state20[4..12].iter().flat_map(|word| word.to_le_bytes()).collect::<Vec<_>>(),
-            hex_bytes("438a0465002a29378d437318819e08fd8064a9f33236c88aaf20325dffb779d1"),
+            decode_hex("438a0465002a29378d437318819e08fd8064a9f33236c88aaf20325dffb779d1"),
         );
         assert_eq!(
             state30[4..12].iter().flat_map(|word| word.to_le_bytes()).collect::<Vec<_>>(),
-            hex_bytes("c2692b3cdb6a049831aa4a8300c6e306bc69eea2cb45b6adffd8629165439afb"),
+            decode_hex("c2692b3cdb6a049831aa4a8300c6e306bc69eea2cb45b6adffd8629165439afb"),
         );
     }
 
