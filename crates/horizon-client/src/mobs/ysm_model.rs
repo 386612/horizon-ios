@@ -353,6 +353,7 @@ pub fn apply_default_animation(
     if runtime.animations.is_empty() { return; }
 
     let base_context = MolangContext {
+        anim_time: state.age / 20.0,
         life_time: state.age / 20.0,
         modified_distance_moved: state.pos,
         ground_speed: state.speed,
@@ -819,6 +820,8 @@ mod animation_sampling_tests {
         assert_eq!(eval_molang("query.anim_time * 2 + 1", 3.0), Some(7.0));
         assert_eq!(eval_molang("query.anim_time > 2 && query.anim_time <= 4", 3.0), Some(1.0));
         assert_eq!(eval_molang("!(query.anim_time < 2)", 3.0), Some(1.0));
+        let context = MolangContext { is_on_ground: true, ground_speed: 0.8, ..MolangContext::default() };
+        assert_eq!(eval_molang_with_context("query.is_on_ground && query.ground_speed > 0.5", context), Some(1.0));
         assert_eq!(eval_molang("math.sin(90)", 0.0), Some(1.0));
         assert_eq!(eval_molang("math.clamp(query.life_time, 0, 2)", 3.0), Some(2.0));
         assert_eq!(eval_molang("unknown.query", 1.0), None);
