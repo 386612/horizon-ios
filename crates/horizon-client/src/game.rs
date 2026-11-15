@@ -12367,22 +12367,16 @@ fn load_world_rest(
                         }
                         let texture_path = format!("entity/player/ysm/{model_id}/{texture_id}");
                         if let Some((_, arm_model)) = loaded.resource.models.iter().find(|(name, _)| name == "arm") {
-                            if let Ok(arm_part) = horizon_client::mobs::ysm_model::convert_ysm_model(arm_model) {
-                                let right = arm_part.children.iter().find(|part| part.name == "right_arm").cloned();
-                                let left = arm_part.children.iter().find(|part| part.name == "left_arm").cloned();
-                                if let (Some(mut right), Some(mut left)) = (right, left) {
-                                    horizon_client::mobs::ysm_model::apply_ysm_model_scale(
-                                        &mut right,
-                                        width_scale,
-                                        height_scale,
-                                    );
-                                    horizon_client::mobs::ysm_model::apply_ysm_model_scale(
-                                        &mut left,
-                                        width_scale,
-                                        height_scale,
-                                    );
-                                    horizon_client::mobs::ysm_model::register_default_player_arms([right, left]);
-                                }
+                            match horizon_client::mobs::ysm_model::convert_ysm_arm_model(
+                                arm_model,
+                                width_scale,
+                                height_scale,
+                            ) {
+                                Ok(arms) => horizon_client::mobs::ysm_model::register_default_player_arms(arms),
+                                Err(error) => log::warn!(
+                                    "YSM arm model {} could not be converted: {error}",
+                                    path.display(),
+                                ),
                             }
                         }
                         let converted = Arc::new(converted);
