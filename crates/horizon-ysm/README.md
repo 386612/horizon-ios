@@ -20,7 +20,7 @@ available animation when no preview is declared). Numeric Molang expressions
 support arithmetic, common math functions, and animation-time queries. Legacy
 controller initial-state animations and transitions with supported numeric
 Molang conditions can select tracks. Full entity query context, event execution,
-and blend-transition behavior are not yet implemented. Formats above 15 (the modern sub-entity resource layout), controller-driven runtime state changes, extra-animation UI, and the full first-person texture path are not yet complete. The separate
+and blend-transition behavior are not yet implemented. Formats above 15 (the modern sub-entity resource layout), complete stateful controller execution, extra-animation UI, and the full first-person texture path are not yet complete. The separate
 YSM arm geometry is loaded when available.
 
 ## Direct `.ysm` model storage
@@ -31,7 +31,7 @@ The model directory is relative to Horizon's game working directory:
 config/
 └── ysm/
     ├── active.txt        # optional exact .ysm filename to select
-    ├── active_animation.txt # optional exact main-model animation name
+    ├── active_animation.txt # optional exact animation track name
     └── models/
         ├── model1.ysm
         └── model2.ysm
@@ -41,12 +41,12 @@ Horizon creates this directory and discovers `.ysm` files directly. Without
 `active.txt`, it selects the first valid file in filename order. No `.hmod`
 wrapper is required.
 
-For formats 4–9, the loader also reads the YSM metadata footer (model name,
+For formats 4–15, the loader also reads the YSM metadata footer (model name,
 tips, license, authors, links, scaling values, default texture, preview
 animation, and extra-animation declarations). The default texture and preview
 animation are used when present; `active_animation.txt` can override the
 preview animation by exact animation name. This metadata support does not yet provide
-the full in-game extra-animation selector or full animation-controller behavior.
+the full in-game extra-animation selector or complete stateful animation-controller behavior.
 
 ## Upstream algorithm and attribution
 
