@@ -9,6 +9,33 @@ pub struct YsmResource {
     pub models: Vec<(String, YsmModel)>,
     pub textures: Vec<YsmTexture>,
     pub animations: Vec<YsmAnimationInfo>,
+    pub metadata: Option<YsmMetadata>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct YsmAuthor {
+    pub name: String,
+    pub role: String,
+    pub contacts: Vec<(String, String)>,
+    pub comment: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct YsmMetadata {
+    pub sha256: String,
+    pub name: String,
+    pub tips: String,
+    pub license_type: String,
+    pub license_description: String,
+    pub authors: Vec<YsmAuthor>,
+    pub links: Vec<(String, String)>,
+    pub width_scale: f32,
+    pub height_scale: f32,
+    pub extra_animations: Vec<(String, String)>,
+    pub default_texture: String,
+    pub preview_animation: String,
+    pub free: bool,
+    pub render_layers_first: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -152,15 +179,88 @@ pub fn parse_resource_v4_v9(
         }
     }
 
+    let metadata = parse_ysm_metadata(&mut reader, expected_format)?;
     Ok((
         YsmResource {
             format: expected_format,
             models,
             textures,
             animations,
+            metadata,
         },
         reader.position(),
     ))
+}
+
+/// Reads the optional YSM model metadata footer used by legacy formats 4-9.
+fn parse_ysm_metadata(
+    reader: &mut ResourceReader<'_>,
+    format: u32,
+) -> Result<Option<YsmMetadata>, ResourceError> {
+    let sha256 = reader.read_string()?;
+    if reader.read_varint()? == 0 {
+        return Ok(None);
+    }
+    // Reserved compatibility value present through format 15.
+    let _reserved = reader.read_varint()?;
+    let name = reader.read_string()?;
+    let tips = reader.read_string()?;
+    let license_type = reader.read_string()?;
+    let license_description = reader.read_string()?;
+
+    let mut authors = Vec::new();
+    for _ in 0..reader.read_count("metadata author count")? {
+        let author_name = reader.read_string()?;
+        let role = reader.read_string()?;
+        let mut contacts = Vec::new();
+        for _ in 0..reader.read_count("metadata author contact count")? {
+            contacts.push((reader.read_string()?, reader.read_string()?));
+        }
+        let comment = reader.read_string()?;
+        authors.push(YsmAuthor {
+            name: author_name,
+            role,
+            contacts,
+            comment,
+        });
+    }
+
+    let mut links = Vec::new();
+    for _ in 0..reader.read_count("metadata link count")? {
+        links.push((reader.read_string()?, reader.read_string()?));
+    }
+
+    let width_scale = reader.read_f32()?;
+    let height_scale = reader.read_f32()?;
+    let mut extra_animations = Vec::new();
+    for _ in 0..reader.read_count("metadata extra animation count")? {
+        extra_animations.push((reader.read_string()?, reader.read_string()?));
+    }
+    let default_texture = reader.read_string()?;
+    let preview_animation = reader.read_string()?;
+    let free = reader.read_varint()? != 0;
+    let render_layers_first = if format > 4 {
+        Some(reader.read_varint()? != 0)
+    } else {
+        None
+    };
+
+    Ok(Some(YsmMetadata {
+        sha256,
+        name,
+        tips,
+        license_type,
+        license_description,
+        authors,
+        links,
+        width_scale,
+        height_scale,
+        extra_animations,
+        default_texture,
+        preview_animation,
+        free,
+        render_layers_first,
+    }))
 }
 
 fn parse_animation(
@@ -303,6 +403,79 @@ mod animation_tests {
         assert_eq!(animation.timeline[0].events.len(), 1);
         assert_eq!(animation.timeline[0].events[0], "sound.test");
         assert!((animation.timeline[0].time - 0.4).abs() < 1e-6);
+        assert_eq!(reader.remaining(), 0);
+    }
+}
+
+
+#[cfg(test)]
+mod metadata_tests {
+    use super::*;
+
+    fn varint(out: &mut Vec<u8>, mut value: u64) {
+        while value >= 0x80 { out.push((value as u8) | 0x80); value >>= 7; }
+        out.push(value as u8);
+    }
+    fn string(out: &mut Vec<u8>, value: &str) {
+        varint(out, value.len() as u64);
+        out.extend_from_slice(value.as_bytes());
+    }
+    fn f32le(out: &mut Vec<u8>, value: f32) {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+
+    #[test]
+    fn parses_format_four_model_metadata_and_extra_animation_names() {
+        let mut bytes = Vec::new();
+        string(&mut bytes, "sha256-value");
+        varint(&mut bytes, 1);
+        varint(&mut bytes, 0);
+        string(&mut bytes, "Sample Model");
+        string(&mut bytes, "Model tips");
+        string(&mut bytes, "CC BY-NC-SA 4.0");
+        string(&mut bytes, "Attribution required");
+        varint(&mut bytes, 1);
+        string(&mut bytes, "Author");
+        string(&mut bytes, "Model");
+        varint(&mut bytes, 1);
+        string(&mut bytes, "site");
+        string(&mut bytes, "https://example.invalid");
+        string(&mut bytes, "comment");
+        varint(&mut bytes, 1);
+        string(&mut bytes, "homepage");
+        string(&mut bytes, "https://example.invalid");
+        f32le(&mut bytes, 1.25);
+        f32le(&mut bytes, 1.5);
+        varint(&mut bytes, 1);
+        string(&mut bytes, "dance");
+        string(&mut bytes, "animation.dance");
+        string(&mut bytes, "texture.default");
+        string(&mut bytes, "animation.preview");
+        varint(&mut bytes, 1);
+
+        let mut reader = ResourceReader::new(&bytes);
+        let metadata = parse_ysm_metadata(&mut reader, 4).unwrap().unwrap();
+        assert_eq!(metadata.sha256, "sha256-value");
+        assert_eq!(metadata.name, "Sample Model");
+        assert_eq!(metadata.license_type, "CC BY-NC-SA 4.0");
+        assert_eq!(metadata.authors[0].name, "Author");
+        assert_eq!(metadata.authors[0].contacts[0].0, "site");
+        assert_eq!(metadata.extra_animations[0],
+            ("dance".to_owned(), "animation.dance".to_owned()));
+        assert_eq!(metadata.default_texture, "texture.default");
+        assert_eq!(metadata.preview_animation, "animation.preview");
+        assert!(metadata.free);
+        assert_eq!(metadata.render_layers_first, None);
+        assert_eq!(reader.remaining(), 0);
+    }
+
+    #[test]
+    fn accepts_legacy_metadata_absence_flag() {
+        let mut bytes = Vec::new();
+        string(&mut bytes, "sha256-value");
+        varint(&mut bytes, 0);
+        let mut reader = ResourceReader::new(&bytes);
+        assert_eq!(parse_ysm_metadata(&mut reader, 4).unwrap(), None);
         assert_eq!(reader.remaining(), 0);
     }
 }
