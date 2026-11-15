@@ -417,6 +417,7 @@ enum MolangToken {
     Number(f32),
     Ident(String),
     Plus, Minus, Star, Slash, Percent,
+    Greater, Less, GreaterEqual, LessEqual, Equal, NotEqual, And, Or, Not,
     LeftParen, RightParen, Comma,
 }
 
@@ -428,11 +429,24 @@ fn tokenize_molang(source: &str) -> Option<Vec<MolangToken>> {
     while i < bytes.len() {
         let c = bytes[i] as char;
         if c.is_ascii_whitespace() { i += 1; continue; }
+        let pair = bytes.get(i..i + 2);
+        let paired = match pair {
+            Some(b">=") => Some(MolangToken::GreaterEqual),
+            Some(b"<=") => Some(MolangToken::LessEqual),
+            Some(b"==") => Some(MolangToken::Equal),
+            Some(b"!=") => Some(MolangToken::NotEqual),
+            Some(b"&&") => Some(MolangToken::And),
+            Some(b"||") => Some(MolangToken::Or),
+            _ => None,
+        };
+        if let Some(token) = paired { tokens.push(token); i += 2; continue; }
         let simple = match c {
             '+' => Some(MolangToken::Plus), '-' => Some(MolangToken::Minus),
             '*' => Some(MolangToken::Star), '/' => Some(MolangToken::Slash),
-            '%' => Some(MolangToken::Percent), '(' => Some(MolangToken::LeftParen),
-            ')' => Some(MolangToken::RightParen), ',' => Some(MolangToken::Comma),
+            '%' => Some(MolangToken::Percent), '>' => Some(MolangToken::Greater),
+            '<' => Some(MolangToken::Less), '!' => Some(MolangToken::Not),
+            '(' => Some(MolangToken::LeftParen), ')' => Some(MolangToken::RightParen),
+            ',' => Some(MolangToken::Comma),
             _ => None,
         };
         if let Some(token) = simple { tokens.push(token); i += 1; continue; }
@@ -474,7 +488,49 @@ struct MolangParser {
 }
 
 impl MolangParser {
-    fn expression(&mut self) -> Option<f32> { self.additive() }
+    fn expression(&mut self) -> Option<f32> { self.logical_or() }
+    fn logical_or(&mut self) -> Option<f32> {
+        let mut value = self.logical_and()?;
+        while self.tokens.get(self.cursor) == Some(&MolangToken::Or) {
+            self.cursor += 1;
+            let rhs = self.logical_and()?;
+            value = if value != 0.0 || rhs != 0.0 { 1.0 } else { 0.0 };
+        }
+        Some(value)
+    }
+    fn logical_and(&mut self) -> Option<f32> {
+        let mut value = self.equality()?;
+        while self.tokens.get(self.cursor) == Some(&MolangToken::And) {
+            self.cursor += 1;
+            let rhs = self.equality()?;
+            value = if value != 0.0 && rhs != 0.0 { 1.0 } else { 0.0 };
+        }
+        Some(value)
+    }
+    fn equality(&mut self) -> Option<f32> {
+        let mut value = self.comparison()?;
+        loop {
+            match self.tokens.get(self.cursor) {
+                Some(MolangToken::Equal) => { self.cursor += 1; value = if value == self.comparison()? { 1.0 } else { 0.0 }; }
+                Some(MolangToken::NotEqual) => { self.cursor += 1; value = if value != self.comparison()? { 1.0 } else { 0.0 }; }
+                _ => break,
+            }
+        }
+        Some(value)
+    }
+    fn comparison(&mut self) -> Option<f32> {
+        let mut value = self.additive()?;
+        loop {
+            match self.tokens.get(self.cursor) {
+                Some(MolangToken::Greater) => { self.cursor += 1; value = if value > self.additive()? { 1.0 } else { 0.0 }; }
+                Some(MolangToken::Less) => { self.cursor += 1; value = if value < self.additive()? { 1.0 } else { 0.0 }; }
+                Some(MolangToken::GreaterEqual) => { self.cursor += 1; value = if value >= self.additive()? { 1.0 } else { 0.0 }; }
+                Some(MolangToken::LessEqual) => { self.cursor += 1; value = if value <= self.additive()? { 1.0 } else { 0.0 }; }
+                _ => break,
+            }
+        }
+        Some(value)
+    }
     fn additive(&mut self) -> Option<f32> {
         let mut value = self.multiplicative()?;
         loop {
@@ -502,6 +558,7 @@ impl MolangParser {
         match self.tokens.get(self.cursor) {
             Some(MolangToken::Plus) => { self.cursor += 1; self.unary() }
             Some(MolangToken::Minus) => { self.cursor += 1; Some(-self.unary()?) }
+            Some(MolangToken::Not) => { self.cursor += 1; Some(if self.unary()? == 0.0 { 1.0 } else { 0.0 }) }
             _ => self.primary(),
         }
     }
@@ -652,6 +709,8 @@ mod animation_sampling_tests {
     #[test]
     fn evaluates_common_molang_math_and_animation_queries() {
         assert_eq!(eval_molang("query.anim_time * 2 + 1", 3.0), Some(7.0));
+        assert_eq!(eval_molang("query.anim_time > 2 && query.anim_time <= 4", 3.0), Some(1.0));
+        assert_eq!(eval_molang("!(query.anim_time < 2)", 3.0), Some(1.0));
         assert_eq!(eval_molang("math.sin(90)", 0.0), Some(1.0));
         assert_eq!(eval_molang("math.clamp(query.life_time, 0, 2)", 3.0), Some(2.0));
         assert_eq!(eval_molang("unknown.query", 1.0), None);
