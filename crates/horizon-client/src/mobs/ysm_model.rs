@@ -431,7 +431,7 @@ pub fn apply_default_animation(
         }
     for bone in &animation.bones {
         for (channel_index, channel) in bone.channels.iter().enumerate() {
-            let Some(mut value) = sample_numeric_channel_with_context(
+            let Some(value) = sample_numeric_channel_with_context(
                 channel,
                 time,
                 MolangContext { anim_time: time, ..base_context },
