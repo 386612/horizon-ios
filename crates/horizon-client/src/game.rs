@@ -12396,7 +12396,16 @@ fn load_world_rest(
                                 path.display(),
                             );
                         }
-                        let has_controllers = !loaded.resource.controllers.is_empty();
+                        let player_controllers: Vec<_> = loaded.resource.controllers.iter()
+                            // Vehicle/projectile controller graphs are parsed and retained,
+                            // but are not part of the player avatar's animation graph.
+                            .filter(|controller| {
+                                !controller.name.starts_with("vehicle/")
+                                    && !controller.name.starts_with("projectiles/")
+                            })
+                            .cloned()
+                            .collect();
+                        let has_controllers = !player_controllers.is_empty();
                         let explicit_animation_exists = selected_animation.is_some();
                         // Model id 3 is YSM's "extra" animation bank, not the
                         // player's default animation bank. Keep it available to
@@ -12413,7 +12422,7 @@ fn load_world_rest(
                         // first animation in the initial state of the first controller.
                         // The renderer evaluates supported numeric transition conditions
                         // on each frame; this ordering also supplies a deterministic fallback.
-                        let controller_animation = loaded.resource.controllers.iter().find_map(|controller| {
+                        let controller_animation = player_controllers.iter().find_map(|controller| {
                             controller.states.iter()
                                 .find(|(state_name, _)| state_name == &controller.initial_state)
                                 .and_then(|(_, state)| state.animations.first())
@@ -12436,15 +12445,7 @@ fn load_world_rest(
                             if selected_animation.is_some() {
                                 Vec::new()
                             } else {
-                                loaded.resource.controllers.iter()
-                                    // Category-local vehicle/projectile controllers are
-                                    // retained by the parser but must not drive the player.
-                                    .filter(|controller| {
-                                        !controller.name.starts_with("vehicle/")
-                                            && !controller.name.starts_with("projectiles/")
-                                    })
-                                    .cloned()
-                                    .collect()
+                                player_controllers
                             },
                         );
                         if let Some(player) = loaded_mob_types.types.get_mut("minecraft:player") {
