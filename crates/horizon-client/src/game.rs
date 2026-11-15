@@ -12391,7 +12391,7 @@ fn load_world_rest(
                             texture_path.clone(),
                         );
                         let mut animations: Vec<_> = loaded.resource.animations.iter()
-                            .filter(|animation| animation.model_id == 1)
+                            .filter(|animation| matches!(animation.model_id, 1 | 3))
                             .cloned()
                             .collect();
                         let selected_animation = std::fs::read_to_string(
