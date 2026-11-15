@@ -334,6 +334,8 @@ struct ControllerRuntimeState {
     current_state: String,
     previous_state: Option<String>,
     transition_started: f32,
+    current_state_started: f32,
+    previous_state_started: f32,
     blend_duration: f32,
 }
 
@@ -392,7 +394,7 @@ pub fn apply_default_animation(
         is_passenger: mob.extra.passenger,
         ..MolangContext::default()
     };
-    let mut selected_animations: Vec<(&YsmAnimationInfo, f32)> = Vec::new();
+    let mut selected_animations: Vec<(&YsmAnimationInfo, f32, f32)> = Vec::new();
     if !runtime.controllers.is_empty() {
         let registry = DEFAULT_CONTROLLER_STATES.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
         let mut states = registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -402,6 +404,8 @@ pub fn apply_default_animation(
                 current_state: controller.initial_state.clone(),
                 previous_state: None,
                 transition_started: base_context.life_time,
+                current_state_started: base_context.life_time,
+                previous_state_started: base_context.life_time,
                 blend_duration: 0.0,
             });
             let next_state = controller_next_state(controller, &runtime_state.current_state, base_context);
@@ -413,7 +417,9 @@ pub fn apply_default_animation(
                     .max(0.0);
                 runtime_state.previous_state = (blend_duration > 0.0)
                     .then(|| runtime_state.current_state.clone());
+                runtime_state.previous_state_started = runtime_state.current_state_started;
                 runtime_state.current_state = next_state;
+                runtime_state.current_state_started = base_context.life_time;
                 runtime_state.transition_started = base_context.life_time;
                 runtime_state.blend_duration = blend_duration;
             }
@@ -438,6 +444,7 @@ pub fn apply_default_animation(
                     controller,
                     previous,
                     base_context,
+                    runtime_state.previous_state_started,
                     1.0 - progress,
                 );
             }
@@ -447,6 +454,7 @@ pub fn apply_default_animation(
                 controller,
                 &runtime_state.current_state,
                 base_context,
+                runtime_state.current_state_started,
                 progress,
             );
         }
@@ -460,12 +468,12 @@ pub fn apply_default_animation(
             }
             _ => 1.0,
         };
-        selected_animations.push((fallback, blend_weight));
+        selected_animations.push((fallback, blend_weight, 0.0));
     }
 
-    for (animation, animation_weight) in selected_animations {
+    for (animation, animation_weight, animation_started) in selected_animations {
         let duration = animation.duration_ticks / 20.0;
-        let mut time = base_context.life_time;
+        let mut time = (base_context.life_time - animation_started).max(0.0);
         if duration > 0.0 && duration.is_finite() {
             time = match animation.loop_mode {
                 1 => time.rem_euclid(duration),
@@ -780,20 +788,25 @@ impl MolangParser {
 }
 
 fn append_controller_animations<'a>(
-    selected: &mut Vec<(&'a YsmAnimationInfo, f32)>,
+    selected: &mut Vec<(&'a YsmAnimationInfo, f32, f32)>,
     runtime: &'a YsmRuntimeAnimations,
     controller: &horizon_ysm::YsmAnimationController,
     state_name: &str,
     context: MolangContext,
+    animation_started: f32,
     transition_weight: f32,
 ) {
     if transition_weight <= 0.0 { return; }
+    let animation_context = MolangContext {
+        anim_time: (context.life_time - animation_started).max(0.0),
+        ..context
+    };
     let Some(entries) = controller_state_animations(controller, state_name) else { return; };
     for (name, weight) in entries {
         let state_weight = if weight.is_empty() {
             1.0
         } else {
-            eval_molang_with_context(weight, context).unwrap_or(1.0)
+            eval_molang_with_context(weight, animation_context).unwrap_or(1.0)
         };
         if state_weight == 0.0 { continue; }
         let Some(animation) = runtime.animations.iter().find(|animation| {
@@ -803,18 +816,20 @@ fn append_controller_animations<'a>(
         let animation_weight = match &animation.blend_weight {
             Some(YsmMolangValue::Number(value)) if value.is_finite() => *value,
             Some(YsmMolangValue::Expression(expression)) => {
-                eval_molang_with_context(expression, context).unwrap_or(1.0)
+                eval_molang_with_context(expression, animation_context).unwrap_or(1.0)
             }
             _ => 1.0,
         };
         let total_weight = state_weight * animation_weight * transition_weight;
         if total_weight == 0.0 { continue; }
-        if let Some((_, existing_weight)) = selected.iter_mut()
-            .find(|(selected_animation, _)| selected_animation.name == animation.name)
+        if let Some((_, existing_weight, _)) = selected.iter_mut()
+            .find(|(selected_animation, _, started)| {
+                selected_animation.name == animation.name && *started == animation_started
+            })
         {
             *existing_weight += total_weight;
         } else {
-            selected.push((animation, total_weight));
+            selected.push((animation, total_weight, animation_started));
         }
     }
 }
