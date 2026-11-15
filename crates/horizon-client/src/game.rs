@@ -12400,11 +12400,21 @@ fn load_world_rest(
                         .ok()
                         .map(|value| value.trim().to_owned())
                         .filter(|value| !value.is_empty());
-                        let preferred_animation = selected_animation.as_deref().or_else(|| {
-                            loaded.resource.metadata.as_ref()
-                                .map(|metadata| metadata.preview_animation.as_str())
-                                .filter(|name| !name.is_empty())
+                        // If no explicit user override is configured, honor the
+                        // first animation in the initial state of the first controller.
+                        // Runtime transition conditions are evaluated separately in the
+                        // full controller integration; this provides a useful idle/default.
+                        let controller_animation = loaded.resource.controllers.iter().find_map(|controller| {
+                            controller.states.iter()
+                                .find(|(state_name, _)| state_name == &controller.initial_state)
+                                .and_then(|(_, state)| state.animations.first())
+                                .map(|(name, _)| name.as_str())
                         });
+                        let preferred_animation = selected_animation.as_deref()
+                            .or(controller_animation)
+                            .or_else(|| loaded.resource.metadata.as_ref()
+                                .map(|metadata| metadata.preview_animation.as_str())
+                                .filter(|name| !name.is_empty()));
                         if let Some(preferred) = preferred_animation {
                             animations.sort_by_key(|animation| animation.name != preferred);
                         }
