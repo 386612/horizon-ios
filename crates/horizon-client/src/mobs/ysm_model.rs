@@ -285,6 +285,8 @@ pub fn clear_registered_player_model() {
     *arms.write().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
     let animations = DEFAULT_ANIMATIONS.get_or_init(|| std::sync::RwLock::new(HashMap::new()));
     animations.write().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+    DEFAULT_CONTROLLER_STATES.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+        .lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
 }
 
 /// Applies the selected YSM avatar model to the player type created by the
@@ -325,6 +327,10 @@ struct YsmRuntimeAnimations {
 
 static DEFAULT_ANIMATIONS: std::sync::OnceLock<
     std::sync::RwLock<HashMap<String, YsmRuntimeAnimations>>,
+> = std::sync::OnceLock::new();
+
+static DEFAULT_CONTROLLER_STATES: std::sync::OnceLock<
+    std::sync::Mutex<HashMap<(String, u32), String>>,
 > = std::sync::OnceLock::new();
 
 /// Registers decoded animation tracks and controller state graphs for a YSM avatar.
@@ -378,12 +384,19 @@ pub fn apply_default_animation(
         is_passenger: mob.extra.passenger,
         ..MolangContext::default()
     };
-    let selected = runtime.controllers.first()
-        .and_then(|controller| controller_animation_name(controller, base_context))
-        .and_then(|name| runtime.animations.iter().find(|animation| {
-            animation.name.as_str() == name
-                || animation.name.as_str() == name.strip_prefix("animation.").unwrap_or(name)
-        }));
+    let selected = runtime.controllers.first().and_then(|controller| {
+        let registry = DEFAULT_CONTROLLER_STATES.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
+        let mut states = registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let key = (texture.to_owned(), mob.id);
+        let current_state = states.get(&key).map(String::as_str)
+            .unwrap_or(controller.initial_state.as_str());
+        let next_state = controller_next_state(controller, current_state, base_context);
+        states.insert(key, next_state.clone());
+        controller_animation_name(controller, &next_state)
+    }).and_then(|name| runtime.animations.iter().find(|animation| {
+        animation.name.as_str() == name
+            || animation.name.as_str() == name.strip_prefix("animation.").unwrap_or(name)
+    }));
     let animation = selected.unwrap_or(&runtime.animations[0]);
     let duration = animation.duration_ticks / 20.0;
     let mut time = base_context.life_time;
@@ -698,25 +711,36 @@ impl MolangParser {
     }
 }
 
-fn controller_animation_name<'a>(
-    controller: &'a horizon_ysm::YsmAnimationController,
+fn controller_next_state(
+    controller: &horizon_ysm::YsmAnimationController,
+    current_state: &str,
     context: MolangContext,
-) -> Option<&'a str> {
-    let mut state_name = controller.initial_state.as_str();
-    if let Some((_, state)) = controller.states.iter().find(|(name, _)| name == state_name) {
+) -> String {
+    let mut next_state = current_state.to_owned();
+    if let Some((_, state)) = controller.states.iter().find(|(name, _)| name == current_state) {
         // Serialized transitions are (target state, condition), in declaration order.
         for (target, condition) in &state.transitions {
             if eval_molang_with_context(condition, context).is_some_and(|value| value != 0.0) {
-                state_name = target;
+                next_state = target.clone();
                 break;
             }
         }
+    } else {
+        next_state = controller.initial_state.clone();
     }
+    next_state
+}
+
+fn controller_animation_name<'a>(
+    controller: &'a horizon_ysm::YsmAnimationController,
+    state_name: &str,
+) -> Option<&'a str> {
     controller.states.iter()
         .find(|(name, _)| name == state_name)
         .and_then(|(_, state)| state.animations.first())
         .map(|(name, _)| name.as_str())
 }
+
 
 fn eval_molang(expression: &str, anim_time: f32) -> Option<f32> {
     eval_molang_with_context(expression, MolangContext {
@@ -845,8 +869,14 @@ mod animation_sampling_tests {
                 }),
             ],
         };
-        assert_eq!(controller_animation_name(&controller, MolangContext { life_time: 0.5, ..MolangContext::default() }), Some("animation.idle"));
-        assert_eq!(controller_animation_name(&controller, MolangContext { life_time: 1.5, ..MolangContext::default() }), Some("animation.run"));
+        let idle = controller_next_state(&controller, "idle", MolangContext { life_time: 0.5, ..MolangContext::default() });
+        assert_eq!(idle, "idle");
+        assert_eq!(controller_animation_name(&controller, &idle), Some("animation.idle"));
+        let running = controller_next_state(&controller, &idle, MolangContext { life_time: 1.5, ..MolangContext::default() });
+        assert_eq!(running, "run");
+        assert_eq!(controller_animation_name(&controller, &running), Some("animation.run"));
+        // A state remains active until one of its own transitions changes it.
+        assert_eq!(controller_next_state(&controller, &running, MolangContext::default()), "run");
     }
 
     #[test]
