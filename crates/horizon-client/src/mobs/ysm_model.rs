@@ -779,11 +779,8 @@ fn sample_numeric_channel_with_context(
             YsmMolangValue::Number(value) => value.is_finite().then_some(*value),
             YsmMolangValue::Expression(expression) => eval_molang_with_context(expression, context),
         });
-        Some([
-            result[0]?,
-            result[1]?,
-            result[2]?,
-        ])
+        let sampled = [result[0]?, result[1]?, result[2]?];
+        sampled.iter().all(|value| value.is_finite()).then_some(sampled)
     };
     if time <= first.time {
         return numeric(&first.post);
