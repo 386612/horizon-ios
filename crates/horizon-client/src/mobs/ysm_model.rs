@@ -384,7 +384,7 @@ pub fn apply_default_animation(
         is_passenger: mob.extra.passenger,
         ..MolangContext::default()
     };
-    let mut selected_animations: Vec<&YsmAnimationInfo> = Vec::new();
+    let mut selected_animations: Vec<(&YsmAnimationInfo, f32)> = Vec::new();
     if !runtime.controllers.is_empty() {
         let registry = DEFAULT_CONTROLLER_STATES.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
         let mut states = registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -396,26 +396,31 @@ pub fn apply_default_animation(
             states.insert(key, next_state.clone());
             let Some(animation_entries) = controller_state_animations(controller, &next_state) else { continue; };
             for (name, weight) in animation_entries {
-                if !weight.is_empty()
-                    && eval_molang_with_context(weight, base_context).is_some_and(|value| value == 0.0)
-                {
-                    continue;
-                }
+                let animation_weight = if weight.is_empty() {
+                    1.0
+                } else {
+                    eval_molang_with_context(weight, base_context).unwrap_or(1.0)
+                };
+                if animation_weight == 0.0 { continue; }
                 let Some(animation) = runtime.animations.iter().find(|animation| {
                     animation.name.as_str() == name.as_str()
                         || animation.name.as_str() == name.strip_prefix("animation.").unwrap_or(name)
                 }) else { continue; };
-                if !selected_animations.iter().any(|selected| selected.name == animation.name) {
-                    selected_animations.push(animation);
+                if let Some((_, existing_weight)) = selected_animations.iter_mut()
+                    .find(|(selected, _)| selected.name == animation.name)
+                {
+                    *existing_weight += animation_weight;
+                } else {
+                    selected_animations.push((animation, animation_weight));
                 }
             }
         }
     }
     if selected_animations.is_empty() {
-        selected_animations.push(&runtime.animations[0]);
+        selected_animations.push((&runtime.animations[0], 1.0));
     }
 
-    for animation in selected_animations {
+    for (animation, animation_weight) in selected_animations {
         let duration = animation.duration_ticks / 20.0;
         let mut time = base_context.life_time;
         if duration > 0.0 && duration.is_finite() {
@@ -426,11 +431,14 @@ pub fn apply_default_animation(
         }
     for bone in &animation.bones {
         for (channel_index, channel) in bone.channels.iter().enumerate() {
-            let Some(value) = sample_numeric_channel_with_context(
+            let Some(mut value) = sample_numeric_channel_with_context(
                 channel,
                 time,
                 MolangContext { anim_time: time, ..base_context },
             ) else { continue; };
+            if animation_weight != 1.0 {
+                for component in &mut value { *component *= animation_weight; }
+            }
             let pose = poses.get(&bone.bone_name);
             match channel_index {
                 0 => {
