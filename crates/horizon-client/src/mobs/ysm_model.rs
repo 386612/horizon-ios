@@ -869,10 +869,10 @@ mod animation_sampling_tests {
                 }),
             ],
         };
-        let idle = controller_next_state(&controller, "idle", MolangContext { life_time: 0.5, ..MolangContext::default() });
+        let idle = controller_next_state(&controller, "idle", MolangContext { anim_time: 0.5, life_time: 0.5, ..MolangContext::default() });
         assert_eq!(idle, "idle");
         assert_eq!(controller_animation_name(&controller, &idle), Some("animation.idle"));
-        let running = controller_next_state(&controller, &idle, MolangContext { life_time: 1.5, ..MolangContext::default() });
+        let running = controller_next_state(&controller, &idle, MolangContext { anim_time: 1.5, life_time: 1.5, ..MolangContext::default() });
         assert_eq!(running, "run");
         assert_eq!(controller_animation_name(&controller, &running), Some("animation.run"));
         // A state remains active until one of its own transitions changes it.
