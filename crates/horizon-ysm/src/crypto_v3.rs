@@ -85,49 +85,42 @@ fn modified_xchacha_decrypt(data: &[u8], key: &[u8; 32], iv: &[u8; 24], seed: u6
     key_iv[32..].copy_from_slice(iv);
     let hash2 = city_hash64_with_seed(&key_iv, seed);
     let mut next_round_size = (((hash2 & 0x3f) | 0x40) << 6) as usize;
-    let initial_rounds = (10 * (hash2 % 3) + 10) as u32;
-    set_rounds(initial_rounds);
-    let mut state = xchacha_initial_state(key, iv, initial_rounds);
+    let mut rounds = (10 * (hash2 % 3) + 10) as u32;
+    let mut state = xchacha_initial_state(key, iv);
     let mut output = Vec::with_capacity(data.len());
     let mut offset = 0usize;
 
     while offset < data.len() {
         let take = next_round_size.min(data.len() - offset);
         let chunk = &data[offset..offset + take];
-        let plain = chacha_xor(&mut state, chunk);
+        let plain = chacha_xor(&mut state, chunk, rounds);
         let res_hash = city_hash64_with_seed(&plain, seed);
-        next_round_size = update_xchacha_state(&mut state, res_hash);
+        let (next_size, next_rounds) = update_xchacha_state(&mut state, res_hash);
+        next_round_size = next_size;
+        rounds = next_rounds;
         output.extend_from_slice(&plain);
         offset += take;
     }
     output
 }
 
-fn update_xchacha_state(state: &mut [u32; 16], hash: u64) -> usize {
-    let rounds = 10 * (hash % 3) + 10;
-    state[0] = state[0]; // Explicitly retain the HChaCha-derived state.
+fn update_xchacha_state(state: &mut [u32; 16], hash: u64) -> (usize, u32) {
+    let rounds = (10 * (hash % 3) + 10) as u32;
     for i in 4..16 {
         state[i] ^= if i % 2 == 0 { hash as u32 } else { (hash >> 32) as u32 };
     }
-    // Rounds are carried separately in the counter slot's companion state.
-    // The stream function reads this value from the side-channel below.
-    set_rounds(rounds as u32);
-    (((hash & 0x3f) | 0x40) << 6) as usize
+    ((((hash & 0x3f) | 0x40) << 6) as usize, rounds)
 }
 
-thread_local! {
-    static CURRENT_ROUNDS: std::cell::Cell<u32> = const { std::cell::Cell::new(20) };
-}
-fn set_rounds(rounds: u32) { CURRENT_ROUNDS.with(|v| v.set(rounds)); }
-fn get_rounds() -> u32 { CURRENT_ROUNDS.with(std::cell::Cell::get) }
-
-fn xchacha_initial_state(key: &[u8; 32], iv: &[u8; 24], rounds: u32) -> [u32; 16] {
+fn xchacha_initial_state(key: &[u8; 32], iv: &[u8; 24]) -> [u32; 16] {
     let mut input = [0u32; 16];
     input[..4].copy_from_slice(&[0x6170_7865, 0x3320_646e, 0x7962_2d32, 0x6b20_6574]);
     for i in 0..8 {
         input[4 + i] = u32::from_le_bytes(key[i * 4..i * 4 + 4].try_into().unwrap());
     }
-    let subkey = hchacha20(&input, &iv[..16], rounds);
+    // XChaCha's HChaCha20 subkey derivation always uses 20 rounds.
+    // YSM's variable round count applies only to the subsequent stream cipher.
+    let subkey = hchacha20(&input, &iv[..16]);
     input[4..12].copy_from_slice(&subkey[0..8]);
     input[12] = 0;
     input[13] = 0;
@@ -136,12 +129,12 @@ fn xchacha_initial_state(key: &[u8; 32], iv: &[u8; 24], rounds: u32) -> [u32; 16
     input
 }
 
-fn hchacha20(base: &[u32; 16], nonce: &[u8], rounds: u32) -> [u32; 8] {
+fn hchacha20(base: &[u32; 16], nonce: &[u8]) -> [u32; 8] {
     let mut x = *base;
     for i in 0..4 {
         x[12 + i] = u32::from_le_bytes(nonce[i * 4..i * 4 + 4].try_into().unwrap());
     }
-    chacha_rounds(&mut x, rounds);
+    chacha_rounds(&mut x, 20);
     [x[0], x[1], x[2], x[3], x[12], x[13], x[14], x[15]]
 }
 
@@ -165,9 +158,8 @@ fn quarter_round(x: &mut [u32; 16], a: usize, b: usize, c: usize, d: usize) {
     x[c] = x[c].wrapping_add(x[d]); x[b] = (x[b] ^ x[c]).rotate_left(7);
 }
 
-fn chacha_xor(state: &mut [u32; 16], input: &[u8]) -> Vec<u8> {
+fn chacha_xor(state: &mut [u32; 16], input: &[u8], rounds: u32) -> Vec<u8> {
     let mut output = Vec::with_capacity(input.len());
-    let rounds = get_rounds();
     for chunk in input.chunks(64) {
         let initial = *state;
         let mut block = initial;
@@ -245,6 +237,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn hchacha20_uses_the_fixed_twenty_round_xchacha_subkey_schedule() {
+        // HChaCha20 known-answer vector from the XChaCha construction.
+        let mut input = [0u32; 16];
+        input[..4].copy_from_slice(&[
+            0x6170_7865, 0x3320_646e, 0x7962_2d32, 0x6b20_6574,
+        ]);
+        for i in 0..8 {
+            let key_word = [i * 4, i * 4 + 1, i * 4 + 2, i * 4 + 3];
+            input[4 + i] = u32::from_le_bytes(key_word.map(|v| v as u8));
+        }
+        let nonce = [
+            0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x4a,
+            0x00, 0x00, 0x00, 0x00, 0x31, 0x41, 0x59, 0x27,
+        ];
+        assert_eq!(
+            hchacha20(&input, &nonce),
+            [
+                0x423b_4182, 0xfe7b_b227, 0x5042_0ed3, 0x737d_878a,
+                0xd5e4_f9a0, 0x53a8_748a, 0x13c4_2ec1, 0xdcec_d326,
+            ],
+        );
+    }
+
+    #[test]
     fn restores_ysm_raw_block_header_and_decompresses_frame() {
         // A single-segment Zstandard frame containing the raw bytes "abc",
         // with its block header transformed using the YSM v3 mapping.
@@ -270,17 +286,18 @@ mod tests {
         key_iv[32..].copy_from_slice(iv);
         let hash2 = city_hash64_with_seed(&key_iv, seed);
         let mut next_round_size = (((hash2 & 0x3f) | 0x40) << 6) as usize;
-        let initial_rounds = (10 * (hash2 % 3) + 10) as u32;
-        set_rounds(initial_rounds);
-        let mut state = xchacha_initial_state(key, iv, initial_rounds);
+        let mut rounds = (10 * (hash2 % 3) + 10) as u32;
+        let mut state = xchacha_initial_state(key, iv);
         let mut output = Vec::with_capacity(data.len());
         let mut offset = 0usize;
         while offset < data.len() {
             let take = next_round_size.min(data.len() - offset);
             let plain = &data[offset..offset + take];
-            output.extend_from_slice(&chacha_xor(&mut state, plain));
+            output.extend_from_slice(&chacha_xor(&mut state, plain, rounds));
             let hash = city_hash64_with_seed(plain, seed);
-            next_round_size = update_xchacha_state(&mut state, hash);
+            let (next_size, next_rounds) = update_xchacha_state(&mut state, hash);
+            next_round_size = next_size;
+            rounds = next_rounds;
             offset += take;
         }
         output
