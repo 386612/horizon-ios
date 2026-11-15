@@ -429,16 +429,17 @@ fn tokenize_molang(source: &str) -> Option<Vec<MolangToken>> {
     while i < bytes.len() {
         let c = bytes[i] as char;
         if c.is_ascii_whitespace() { i += 1; continue; }
-        let pair = bytes.get(i..i + 2);
-        let paired = match pair {
-            Some(b">=") => Some(MolangToken::GreaterEqual),
-            Some(b"<=") => Some(MolangToken::LessEqual),
-            Some(b"==") => Some(MolangToken::Equal),
-            Some(b"!=") => Some(MolangToken::NotEqual),
-            Some(b"&&") => Some(MolangToken::And),
-            Some(b"||") => Some(MolangToken::Or),
-            _ => None,
-        };
+        let paired = if i + 1 < bytes.len() {
+            match (bytes[i], bytes[i + 1]) {
+                (b'>', b'=') => Some(MolangToken::GreaterEqual),
+                (b'<', b'=') => Some(MolangToken::LessEqual),
+                (b'=', b'=') => Some(MolangToken::Equal),
+                (b'!', b'=') => Some(MolangToken::NotEqual),
+                (b'&', b'&') => Some(MolangToken::And),
+                (b'|', b'|') => Some(MolangToken::Or),
+                _ => None,
+            }
+        } else { None };
         if let Some(token) = paired { tokens.push(token); i += 2; continue; }
         let simple = match c {
             '+' => Some(MolangToken::Plus), '-' => Some(MolangToken::Minus),
