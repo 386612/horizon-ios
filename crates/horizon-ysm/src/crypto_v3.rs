@@ -314,7 +314,7 @@ mod tests {
         let xorred = mt19937_64_xor(&nonce_and_frame, xor_seed);
         let encrypted = modified_xchacha_encrypt(&xorred, &key, &iv, SEED_RES_VERIFICATION);
 
-        let mut file = b"YSGP<format> 4\\n<crypto> 3\\n\\0".to_vec();
+        let mut file = b"YSGP<format> 4\n<crypto> 3\n\0".to_vec();
         file.extend_from_slice(&3u32.to_le_bytes());
         file.extend_from_slice(&encrypted);
         file.extend_from_slice(&key);
