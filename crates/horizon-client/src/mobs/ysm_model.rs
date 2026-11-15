@@ -382,7 +382,7 @@ fn sample_numeric_channel(
     if time <= first.time {
         return numeric(&first.post);
     }
-    for pair in frames.windows(2) {
+    for (index, pair) in frames.windows(2).enumerate() {
         let (from, to) = (&pair[0], &pair[1]);
         if time <= to.time {
             let a = numeric(&from.post)?;
@@ -391,8 +391,71 @@ fn sample_numeric_channel(
             }
             let b = numeric(to.pre.as_ref().unwrap_or(&to.post))?;
             let t = ((time - from.time) / (to.time - from.time)).clamp(0.0, 1.0);
+            if from.lerp_mode == 2 {
+                let p0 = if index == 0 {
+                    a
+                } else {
+                    numeric(&frames[index - 1].post).unwrap_or(a)
+                };
+                let p3 = if index + 2 >= frames.len() {
+                    b
+                } else {
+                    numeric(frames[index + 2].pre.as_ref().unwrap_or(&frames[index + 2].post))
+                        .unwrap_or(b)
+                };
+                let t2 = t * t;
+                let t3 = t2 * t;
+                return Some(std::array::from_fn(|i| {
+                    0.5 * ((2.0 * a[i])
+                        + (-p0[i] + b[i]) * t
+                        + (2.0 * p0[i] - 5.0 * a[i] + 4.0 * b[i] - p3[i]) * t2
+                        + (-p0[i] + 3.0 * a[i] - 3.0 * b[i] + p3[i]) * t3)
+                }));
+            }
             return Some(std::array::from_fn(|i| a[i] + (b[i] - a[i]) * t));
         }
     }
     numeric(&frames.last()?.post)
+}
+
+
+#[cfg(test)]
+mod animation_sampling_tests {
+    use super::*;
+    use horizon_ysm::{YsmAnimationChannel, YsmKeyframe, YsmMolangValue};
+
+    fn frame(time: f32, value: f32, lerp_mode: u64) -> YsmKeyframe {
+        YsmKeyframe {
+            time,
+            lerp_mode,
+            post: [YsmMolangValue::Number(value); 3],
+            pre: None,
+        }
+    }
+
+    #[test]
+    fn samples_linear_and_step_keyframes() {
+        let linear = YsmAnimationChannel {
+            keyframes: vec![frame(0.0, 0.0, 0), frame(1.0, 10.0, 0)],
+        };
+        assert_eq!(sample_numeric_channel(&linear, 0.5), Some([5.0; 3]));
+
+        let step = YsmAnimationChannel {
+            keyframes: vec![frame(0.0, 2.0, 1), frame(1.0, 10.0, 0)],
+        };
+        assert_eq!(sample_numeric_channel(&step, 0.5), Some([2.0; 3]));
+    }
+
+    #[test]
+    fn samples_catmull_rom_keyframes() {
+        let channel = YsmAnimationChannel {
+            keyframes: vec![
+                frame(0.0, 0.0, 2),
+                frame(1.0, 10.0, 0),
+                frame(2.0, 0.0, 0),
+            ],
+        };
+        assert_eq!(sample_numeric_channel(&channel, 1.0), Some([10.0; 3]));
+        assert_eq!(sample_numeric_channel(&channel, 0.5), Some([6.25; 3]));
+    }
 }
