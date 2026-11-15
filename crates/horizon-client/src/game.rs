@@ -12370,10 +12370,16 @@ fn load_world_rest(
                             converted.clone(),
                             texture_path.clone(),
                         );
-                        let animations: Vec<_> = loaded.resource.animations.iter()
+                        let mut animations: Vec<_> = loaded.resource.animations.iter()
                             .filter(|animation| animation.model_id == 1)
                             .cloned()
                             .collect();
+                        if let Some(preview) = loaded.resource.metadata.as_ref()
+                            .map(|metadata| metadata.preview_animation.as_str())
+                            .filter(|name| !name.is_empty())
+                        {
+                            animations.sort_by_key(|animation| animation.name != preview);
+                        }
                         horizon_client::mobs::ysm_model::register_default_animations(
                             texture_path.clone(),
                             animations,
