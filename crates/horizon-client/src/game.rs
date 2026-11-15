@@ -12289,36 +12289,38 @@ fn load_world_rest(
         if draws {
             horizon_client::mobs::ysm_model::clear_registered_player_model();
             let game_root = std::env::current_dir().unwrap_or_default();
-            match horizon_ysm::load_ysm_directory(&game_root) {
-                Ok(mut entries) => {
+            match horizon_ysm::discover_models(&game_root) {
+                Ok(mut paths) => {
                     // Optional exact filename selector; otherwise use deterministic filename order.
                     if let Some(selected) = std::fs::read_to_string(game_root.join("config/ysm/active.txt"))
                         .ok()
                         .map(|value| value.trim().to_owned())
                         .filter(|value| !value.is_empty())
                     {
-                        if let Some(index) = entries.iter().position(|entry| {
-                            entry.path.file_name().is_some_and(|name| name.to_string_lossy() == selected)
+                        if let Some(index) = paths.iter().position(|path| {
+                            path.file_name().is_some_and(|name| name.to_string_lossy() == selected)
                         }) {
-                            entries.swap(0, index);
+                            paths.swap(0, index);
                         }
                     }
-                    for entry in entries {
-                        let loaded = match entry.result {
+                    for path in paths {
+                        // Decrypt only until the first usable model is found. This avoids
+                        // loading every large .ysm file into memory at world startup.
+                        let loaded = match horizon_ysm::load_ysm_file(&path) {
                             Ok(loaded) => loaded,
                             Err(error) => {
-                                log::warn!("YSM model {} could not be loaded: {error}", entry.path.display());
+                                log::warn!("YSM model {} could not be loaded: {error}", path.display());
                                 continue;
                             }
                         };
                         let Some((_, model)) = loaded.resource.models.iter().find(|(name, _)| name == "main") else {
-                            log::warn!("YSM model {} has no main model", entry.path.display());
+                            log::warn!("YSM model {} has no main model", path.display());
                             continue;
                         };
                         let converted = match horizon_client::mobs::ysm_model::convert_ysm_model(model) {
                             Ok(part) => part,
                             Err(error) => {
-                                log::warn!("YSM model {} could not be converted: {error}", entry.path.display());
+                                log::warn!("YSM model {} could not be converted: {error}", path.display());
                                 continue;
                             }
                         };
@@ -12333,7 +12335,7 @@ fn load_world_rest(
                                     && !texture.name.ends_with("_special")
                             }))
                         else {
-                            log::warn!("YSM model {} has no base texture", entry.path.display());
+                            log::warn!("YSM model {} has no base texture", path.display());
                             continue;
                         };
                         let safe_component = |value: &str| -> String {
@@ -12343,7 +12345,7 @@ fn load_world_rest(
                                 .collect();
                             if value.is_empty() { "model".to_owned() } else { value }
                         };
-                        let model_stem = entry.path.file_stem()
+                        let model_stem = path.file_stem()
                             .and_then(|stem| stem.to_str())
                             .unwrap_or("model");
                         let model_id = safe_component(model_stem);
@@ -12352,7 +12354,7 @@ fn load_world_rest(
                         if let Err(error) = std::fs::create_dir_all(&texture_root)
                             .and_then(|_| std::fs::write(texture_root.join(format!("{texture_id}.png")), &texture.png_bytes))
                         {
-                            log::warn!("YSM texture from {} could not be extracted: {error}", entry.path.display());
+                            log::warn!("YSM texture from {} could not be extracted: {error}", path.display());
                             continue;
                         }
                         let texture_path = format!("entity/player/ysm/{model_id}/{texture_id}");
@@ -12394,7 +12396,7 @@ fn load_world_rest(
                             mannequin.layers.insert("player_slim#main".to_owned(), converted);
                             mannequin.texture = texture_path;
                         }
-                        log::info!("Loaded YSM player model from {}", entry.path.display());
+                        log::info!("Loaded YSM player model from {}", path.display());
                         // Stop after the first valid model (or the explicitly selected
                         // active.txt entry); otherwise later files would overwrite it.
                         break;
