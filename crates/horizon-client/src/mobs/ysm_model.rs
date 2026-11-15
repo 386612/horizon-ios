@@ -34,8 +34,8 @@ impl std::error::Error for YsmModelError {}
 /// by Horizon's mob renderer.
 ///
 /// YSM stores face vertices in normalized model units (the upstream parser
-/// multiplies them by 16 when rebuilding Blockbench geometry) and UVs in
-/// texture pixels. Its
+/// multiplies them by 16 when rebuilding Blockbench geometry) and UVs as
+/// normalized texture coordinates. Its
 /// coordinate convention mirrors X; bone pivots and rotations are converted
 /// to Horizon's model convention. Per-cube rotations are already represented
 /// by the face vertices, so no lossy cube reconstruction is needed here.
@@ -98,8 +98,8 @@ pub fn convert_ysm_model(model: &YsmModel) -> Result<Part, YsmModelError> {
                                 -vertex.position[0] * 16.0 - pivot[0],
                                 vertex.position[1] * 16.0 - pivot[1],
                                 vertex.position[2] * 16.0 - pivot[2],
-                                vertex.uv[0] / width,
-                                vertex.uv[1] / height,
+                                vertex.uv[0],
+                                vertex.uv[1],
                             ]
                         });
                         polygons.push(Polygon {
@@ -203,10 +203,10 @@ mod tests {
         let face = YsmFace {
             normal: [1.0, 0.0, 0.0],
             vertices: [
-                YsmVertex { position: [4.0, 8.0, 12.0], uv: [32.0, 16.0] },
-                YsmVertex { position: [4.0, 8.0, 14.0], uv: [48.0, 16.0] },
-                YsmVertex { position: [4.0, 10.0, 14.0], uv: [48.0, 24.0] },
-                YsmVertex { position: [4.0, 10.0, 12.0], uv: [32.0, 24.0] },
+                YsmVertex { position: [4.0, 8.0, 12.0], uv: [0.5, 0.5] },
+                YsmVertex { position: [4.0, 8.0, 14.0], uv: [0.75, 0.5] },
+                YsmVertex { position: [4.0, 10.0, 14.0], uv: [0.75, 0.75] },
+                YsmVertex { position: [4.0, 10.0, 12.0], uv: [0.5, 0.75] },
             ],
         };
         let root = YsmBone {
