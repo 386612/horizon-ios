@@ -12381,9 +12381,10 @@ fn load_world_rest(
                             mannequin.model = converted.clone();
                             mannequin.layers.insert("player_slim#main".to_owned(), converted);
                             mannequin.texture = texture_path;
-                            log::info!("Loaded YSM player model from {}", entry.path.display());
-                            break;
                         }
+                        log::info!("Loaded YSM player model from {}", entry.path.display());
+                        // Stop after the first valid model (or the explicitly selected
+                        // active.txt entry); otherwise later files would overwrite it.
                     }
                 }
                 Err(error) => log::warn!("Could not scan config/ysm/models: {error}"),
