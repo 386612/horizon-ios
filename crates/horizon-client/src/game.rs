@@ -12207,6 +12207,7 @@ fn load_world_rest(
     behaviour_json: &serde_json::Value,
     gameplay_projection: &[horizon_client::blocks::GameplayProjection],
     entity_models: Option<&horizon_client::mobs::EntityModelDocument>,
+    ysm_model: Option<&resource_load::LoadedPlayerYsm>,
     item_defaults: &horizon_world::item_defaults::Defaults,
     visibility: horizon_world::block_render::FaceVisibility,
     progress: &Progress,
@@ -12289,41 +12290,13 @@ fn load_world_rest(
         if draws {
             horizon_client::mobs::ysm_model::clear_registered_player_model();
             let game_root = std::env::current_dir().unwrap_or_default();
-            match horizon_ysm::discover_models(&game_root) {
-                Ok(mut paths) => {
-                    // Optional exact filename selector; otherwise use deterministic filename order.
-                    if let Some(selected) = std::fs::read_to_string(game_root.join("config/ysm/active.txt"))
-                        .ok()
-                        .map(|value| value.trim().to_owned())
-                        .filter(|value| !value.is_empty())
-                    {
-                        if let Some(index) = paths.iter().position(|path| {
-                            path.file_name().is_some_and(|name| name.to_string_lossy() == selected)
-                        }) {
-                            paths.swap(0, index);
-                        }
-                    }
-                    for path in paths {
-                        // Decrypt only until the first usable model is found. This avoids
-                        // loading every large .ysm file into memory at world startup.
-                        let loaded = match horizon_ysm::load_ysm_file(&path) {
-                            Ok(loaded) => loaded,
-                            Err(error) => {
-                                log::warn!("YSM model {} could not be loaded: {error}", path.display());
-                                continue;
-                            }
-                        };
-                        let Some((_, model)) = loaded.resource.models.iter().find(|(name, _)| name == "main") else {
-                            log::warn!("YSM model {} has no main model", path.display());
-                            continue;
-                        };
-                        let mut converted = match horizon_client::mobs::ysm_model::convert_ysm_model(model) {
-                            Ok(part) => part,
-                            Err(error) => {
-                                log::warn!("YSM model {} could not be converted: {error}", path.display());
-                                continue;
-                            }
-                        };
+            if let Some(ysm_model) = ysm_model {
+                // The file was decrypted once before atlas construction. Reuse
+                // its model, animations and texture identifiers in this phase.
+                for ysm_model in std::iter::once(ysm_model) {
+                    let path = &ysm_model.path;
+                    let loaded = &ysm_model.loaded;
+                    let mut converted = ysm_model.main_part.clone();
                         let (width_scale, height_scale) = loaded.resource.metadata.as_ref()
                             .map(|metadata| (metadata.width_scale, metadata.height_scale))
                             .unwrap_or((0.7, 0.7));
@@ -12346,26 +12319,7 @@ fn load_world_rest(
                             log::warn!("YSM model {} has no base texture", path.display());
                             continue;
                         };
-                        let safe_component = |value: &str| -> String {
-                            let value: String = value.chars()
-                                .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_' || *ch == '-')
-                                .take(64)
-                                .collect();
-                            if value.is_empty() { "model".to_owned() } else { value }
-                        };
-                        let model_stem = path.file_stem()
-                            .and_then(|stem| stem.to_str())
-                            .unwrap_or("model");
-                        let model_id = safe_component(model_stem);
-                        let texture_id = safe_component(&texture.name);
-                        let texture_root = game_root.join("config/ysm/models/.textures").join(&model_id);
-                        if let Err(error) = std::fs::create_dir_all(&texture_root)
-                            .and_then(|_| std::fs::write(texture_root.join(format!("{texture_id}.png")), &texture.png_bytes))
-                        {
-                            log::warn!("YSM texture from {} could not be extracted: {error}", path.display());
-                            continue;
-                        }
-                        let texture_path = format!("entity/player/ysm/{model_id}/{texture_id}");
+                        let texture_path = ysm_model.texture_path.clone();
                         if let Some((_, arm_model)) = loaded.resource.models.iter().find(|(name, _)| name == "arm") {
                             match horizon_client::mobs::ysm_model::convert_ysm_arm_model(
                                 arm_model,
@@ -12460,7 +12414,6 @@ fn load_world_rest(
                         break;
                     }
                 }
-                Err(error) => log::warn!("Could not scan config/ysm/models: {error}"),
             }
         }
         let mob_types: HashMap<_, _> = loaded_mob_types.types
