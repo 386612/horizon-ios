@@ -52,19 +52,24 @@ pub fn convert_ysm_arm_model(
     width_scale: f32,
     height_scale: f32,
 ) -> Result<[Part; 2], YsmModelError> {
-    let converted = convert_ysm_model(model)?;
-    let normalize = |name: &str| -> String {
+    fn normalize(name: &str) -> String {
         name.chars()
             .filter(|ch| ch.is_ascii_alphanumeric())
             .map(|ch| ch.to_ascii_lowercase())
             .collect()
-    };
-    let right = converted.children.iter()
-        .find(|part| normalize(&part.name) == "rightarm")
+    }
+    fn find_bone<'a>(part: &'a Part, target: &str) -> Option<&'a Part> {
+        if normalize(&part.name) == target {
+            return Some(part);
+        }
+        part.children.iter().find_map(|child| find_bone(child, target))
+    }
+
+    let converted = convert_ysm_model(model)?;
+    let right = find_bone(&converted, "rightarm")
         .cloned()
         .ok_or(YsmModelError::MissingArmBone("right"))?;
-    let left = converted.children.iter()
-        .find(|part| normalize(&part.name) == "leftarm")
+    let left = find_bone(&converted, "leftarm")
         .cloned()
         .ok_or(YsmModelError::MissingArmBone("left"))?;
     let mut right = right;
@@ -282,15 +287,19 @@ mod tests {
 
     #[test]
     fn converts_pascal_case_and_snake_case_arm_bone_names() {
+        let root = YsmBone {
+            name: "Root".into(), parent: String::new(), cubes: vec![],
+            pivot: [0.0; 3], rotation_radians: [0.0; 3],
+        };
         let right = YsmBone {
-            name: "RightArm".into(), parent: String::new(), cubes: vec![],
+            name: "RightArm".into(), parent: "Root".into(), cubes: vec![],
             pivot: [1.0, 2.0, 3.0], rotation_radians: [0.0; 3],
         };
         let left = YsmBone {
-            name: "left_arm".into(), parent: String::new(), cubes: vec![],
+            name: "left_arm".into(), parent: "Root".into(), cubes: vec![],
             pivot: [-1.0, 2.0, 3.0], rotation_radians: [0.0; 3],
         };
-        let arms = convert_ysm_arm_model(&model(vec![right, left]), 0.8, 0.65).unwrap();
+        let arms = convert_ysm_arm_model(&model(vec![root, right, left]), 0.8, 0.65).unwrap();
         assert_eq!(arms[0].name, "RightArm");
         assert_eq!(arms[1].name, "left_arm");
         assert_eq!(&arms[0].pose[6..9], &[0.8, 0.65, 0.8]);
