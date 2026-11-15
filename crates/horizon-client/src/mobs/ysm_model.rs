@@ -428,7 +428,7 @@ mod animation_sampling_tests {
         YsmKeyframe {
             time,
             lerp_mode,
-            post: [YsmMolangValue::Number(value); 3],
+            post: std::array::from_fn(|_| YsmMolangValue::Number(value)),
             pre: None,
         }
     }
