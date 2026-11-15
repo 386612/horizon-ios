@@ -393,7 +393,17 @@ pub fn parse_resource_v16_v26(
         let name = match id {
             1 => "main",
             2 => "arm",
-            3 => "arrow",
+            3 => "extra",
+            4 => "tac",
+            5 => "arrow",
+            6 => "carryon",
+            7 => "parcool",
+            8 => "swem",
+            9 => "slashblade",
+            10 => "tlm",
+            11 => "fp.arm",
+            12 => "immersive_melodies",
+            13 => "iss",
             _ => "extra",
         };
         models.push((name.to_owned(), model));
