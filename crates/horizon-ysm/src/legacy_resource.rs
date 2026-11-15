@@ -262,7 +262,7 @@ pub fn parse_resource_v4_v15(
         }
     }
 
-    let metadata = parse_ysm_metadata(&mut reader, expected_format)?;
+    let metadata = parse_ysm_metadata(&mut reader, expected_format, None)?;
     Ok((
         YsmResource {
             format: expected_format,
@@ -277,17 +277,169 @@ pub fn parse_resource_v4_v15(
     ))
 }
 
+/// Parses the modern YSM resource layout used by formats 16 through 26.
+pub fn parse_resource_v16_v26(
+    bytes: &[u8],
+    expected_format: u32,
+) -> Result<(YsmResource, usize), ResourceError> {
+    if !(16..=26).contains(&expected_format) {
+        return Err(ResourceError::InvalidModel("modern resource layout supports formats 16 through 26"));
+    }
+    let mut reader = ResourceReader::new(bytes);
+    if reader.read_u32()? != expected_format {
+        return Err(ResourceError::InvalidModel("resource version differs from header"));
+    }
+
+    // Shared files preceding the entity data: sounds, functions and language tables.
+    let mut sounds = Vec::new();
+    for _ in 0..reader.read_count("sound count")? {
+        let name = reader.read_string()?;
+        let _hash = reader.read_string()?;
+        let data = reader.read_bytes()?;
+        sounds.push(YsmSound { name, data });
+    }
+    for _ in 0..reader.read_count("function count")? {
+        let _name = reader.read_string()?;
+        let _hash = reader.read_string()?;
+        let _data = reader.read_bytes()?;
+    }
+    for _ in 0..reader.read_count("language file count")? {
+        let _name = reader.read_string()?;
+        let _hash = reader.read_string()?;
+        for _ in 0..reader.read_count("language node count")? {
+            let _key = reader.read_string()?;
+            let _value = reader.read_string()?;
+        }
+    }
+
+    // Format 16-26 has one named sub-entity section. Its model is duplicated
+    // in the final model table, where ids 1 and 2 identify main and arm.
+    for _ in 0..reader.read_count("sub-entity count")? {
+        let _sub_entity_name = reader.read_string()?;
+        if reader.read_varint()? != 0 {
+            let _animation = parse_animation(&mut reader, 1)?;
+        }
+        if reader.read_varint()? != 0 {
+            let _controller_hash = reader.read_string()?;
+            let _controller = parse_controller(&mut reader)?;
+        }
+        let _texture_hash = reader.read_string()?;
+        let _texture_data = reader.read_bytes()?;
+        for _ in 0..4 { let _ = reader.read_varint()?; } // UV dimensions/format flags
+        for _ in 0..reader.read_count("sub-entity subtexture count")? {
+            let _kind = reader.read_varint()?;
+            let _hash = reader.read_string()?;
+            let _data = reader.read_bytes()?;
+            for _ in 0..4 { let _ = reader.read_varint()?; }
+        }
+        let start = reader.position();
+        let (_model, consumed) = parse_model_record(&bytes[start..], expected_format)?;
+        reader.read_exact(consumed)?;
+    }
+    if reader.read_varint()? != 1 {
+        return Err(ResourceError::InvalidModel("invalid modern sub-entity footer flag"));
+    }
+
+    let mut animations = Vec::new();
+    for _ in 0..reader.read_count("animation count")? {
+        let model_id = u32::try_from(reader.read_varint()?)
+            .map_err(|_| ResourceError::LengthLimit("animation model id"))?;
+        animations.push(parse_animation(&mut reader, model_id)?);
+    }
+
+    let mut controllers = Vec::new();
+    for _ in 0..reader.read_count("animation controller count")? {
+        let _controller_name = reader.read_string()?;
+        let _controller_hash = reader.read_string()?;
+        controllers.push(parse_controller(&mut reader)?);
+    }
+
+    let mut textures = Vec::new();
+    for _ in 0..reader.read_count("texture count")? {
+        let name = reader.read_string()?;
+        let _hash = reader.read_string()?;
+        let data = reader.read_bytes()?;
+        let width = u32::try_from(reader.read_varint()?)
+            .map_err(|_| ResourceError::InvalidImageDimensions)?;
+        let height = u32::try_from(reader.read_varint()?)
+            .map_err(|_| ResourceError::InvalidImageDimensions)?;
+        let _image_format = reader.read_varint()?;
+        let _unknown_flag = reader.read_varint()?;
+        textures.push(parse_modern_image(name.clone(), data, width, height)?);
+        for _ in 0..reader.read_count("texture subtexture count")? {
+            let kind = reader.read_varint()?;
+            let _hash = reader.read_string()?;
+            let data = reader.read_bytes()?;
+            let width = u32::try_from(reader.read_varint()?)
+                .map_err(|_| ResourceError::InvalidImageDimensions)?;
+            let height = u32::try_from(reader.read_varint()?)
+                .map_err(|_| ResourceError::InvalidImageDimensions)?;
+            let _image_format = reader.read_varint()?;
+            let _unknown_flag = reader.read_varint()?;
+            let suffix = match kind {
+                1 => "_normal",
+                2 => "_specular",
+                _ => "_special",
+            };
+            textures.push(parse_modern_image(format!("{name}{suffix}"), data, width, height)?);
+        }
+    }
+
+    let mut models = Vec::new();
+    for _ in 0..reader.read_count("model count")? {
+        let id = reader.read_varint()?;
+        let start = reader.position();
+        let (model, consumed) = parse_model_record(&bytes[start..], expected_format)?;
+        reader.read_exact(consumed)?;
+        let name = match id {
+            1 => "main",
+            2 => "arm",
+            3 => "arrow",
+            _ => "extra",
+        };
+        models.push((name.to_owned(), model));
+    }
+
+    let metadata = parse_ysm_metadata(&mut reader, expected_format, Some(&mut textures))?;
+    Ok((YsmResource {
+        format: expected_format,
+        models,
+        textures,
+        animations,
+        controllers,
+        sounds,
+        metadata,
+    }, reader.position()))
+}
+
+fn parse_modern_image(
+    name: String,
+    data: Vec<u8>,
+    width: u32,
+    height: u32,
+) -> Result<YsmTexture, ResourceError> {
+    if data.starts_with(b"\x89PNG\r\n\x1a\n") {
+        if width == 0 || height == 0 {
+            return Err(ResourceError::InvalidImageDimensions);
+        }
+        Ok(YsmTexture { name, width, height, png_bytes: data })
+    } else {
+        encode_rgba_texture(name, width, height, &data)
+    }
+}
+
 /// Reads the YSM model metadata footer used by legacy formats 4-15.
 fn parse_ysm_metadata(
     reader: &mut ResourceReader<'_>,
     format: u32,
+    mut textures: Option<&mut Vec<YsmTexture>>,
 ) -> Result<Option<YsmMetadata>, ResourceError> {
     let sha256 = reader.read_string()?;
     if reader.read_varint()? == 0 {
         return Ok(None);
     }
-    // Reserved compatibility value present through format 15.
-    let _reserved = reader.read_varint()?;
+    // Formats through 15 include a reserved compatibility varint here.
+    if format <= 15 { let _reserved = reader.read_varint()?; }
     let name = reader.read_string()?;
     let tips = reader.read_string()?;
     let license_type = reader.read_string()?;
@@ -380,6 +532,40 @@ fn parse_ysm_metadata(
     } else {
         None
     };
+    if format > 15 {
+        let _gui_no_lighting = reader.read_varint()?;
+        if format >= 32 { let _merge_multiline_expr = reader.read_varint()?; }
+        let gui_foreground = reader.read_string()?;
+        let gui_background = reader.read_string()?;
+        for _ in 0..reader.read_count("metadata avatar count")? {
+            let name = reader.read_string()?;
+            let data = reader.read_bytes()?;
+            let width = u32::try_from(reader.read_varint()?)
+                .map_err(|_| ResourceError::InvalidImageDimensions)?;
+            let height = u32::try_from(reader.read_varint()?)
+                .map_err(|_| ResourceError::InvalidImageDimensions)?;
+            let _image_format = reader.read_varint()?;
+            let _unknown_flag = reader.read_varint()?;
+            if let Some(textures) = textures.as_deref_mut() {
+                textures.push(parse_modern_image(format!("avatar/{name}"), data, width, height)?);
+            }
+        }
+        if !gui_foreground.is_empty() || !gui_background.is_empty() {
+            for _ in 0..reader.read_count("metadata background image count")? {
+                let name = reader.read_string()?;
+                let data = reader.read_bytes()?;
+                let width = u32::try_from(reader.read_varint()?)
+                    .map_err(|_| ResourceError::InvalidImageDimensions)?;
+                let height = u32::try_from(reader.read_varint()?)
+                    .map_err(|_| ResourceError::InvalidImageDimensions)?;
+                let _image_format = reader.read_varint()?;
+                let _unknown_flag = reader.read_varint()?;
+                if let Some(textures) = textures.as_deref_mut() {
+                    textures.push(parse_modern_image(format!("background/{name}"), data, width, height)?);
+                }
+            }
+        }
+    }
 
     Ok(Some(YsmMetadata {
         sha256,
