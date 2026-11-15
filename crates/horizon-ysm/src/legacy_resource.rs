@@ -313,6 +313,7 @@ pub fn parse_resource_v16_v26(
 
     let mut animations = Vec::new();
     let mut controllers = Vec::new();
+    let mut textures = Vec::new();
     // Format 16-26 has one named sub-entity section. Its model is duplicated
     // in the final model table, where ids 1 and 2 identify main and arm.
     for _ in 0..reader.read_count("sub-entity count")? {
@@ -325,13 +326,34 @@ pub fn parse_resource_v16_v26(
             controllers.push(parse_controller(&mut reader)?);
         }
         let _texture_hash = reader.read_string()?;
-        let _texture_data = reader.read_bytes()?;
-        for _ in 0..4 { let _ = reader.read_varint()?; } // UV dimensions/format flags
+        let texture_data = reader.read_bytes()?;
+        let texture_width = u32::try_from(reader.read_varint()?)
+            .map_err(|_| ResourceError::InvalidImageDimensions)?;
+        let texture_height = u32::try_from(reader.read_varint()?)
+            .map_err(|_| ResourceError::InvalidImageDimensions)?;
+        let _image_format = reader.read_varint()?;
+        let _unknown_flag = reader.read_varint()?;
+        if !texture_data.is_empty() {
+            textures.push(parse_modern_image(_sub_entity_name.clone(), texture_data, texture_width, texture_height)?);
+        }
         for _ in 0..reader.read_count("sub-entity subtexture count")? {
-            let _kind = reader.read_varint()?;
+            let kind = reader.read_varint()?;
             let _hash = reader.read_string()?;
-            let _data = reader.read_bytes()?;
-            for _ in 0..4 { let _ = reader.read_varint()?; }
+            let data = reader.read_bytes()?;
+            let width = u32::try_from(reader.read_varint()?)
+                .map_err(|_| ResourceError::InvalidImageDimensions)?;
+            let height = u32::try_from(reader.read_varint()?)
+                .map_err(|_| ResourceError::InvalidImageDimensions)?;
+            let _image_format = reader.read_varint()?;
+            let _unknown_flag = reader.read_varint()?;
+            if !data.is_empty() {
+                let suffix = match kind {
+                    1 => "_normal",
+                    2 => "_specular",
+                    _ => "_special",
+                };
+                textures.push(parse_modern_image(format!("{_sub_entity_name}{suffix}"), data, width, height)?);
+            }
         }
         let start = reader.position();
         let (_model, consumed) = parse_model_record(&bytes[start..], expected_format)?;
@@ -353,7 +375,6 @@ pub fn parse_resource_v16_v26(
         controllers.push(parse_controller(&mut reader)?);
     }
 
-    let mut textures = Vec::new();
     for _ in 0..reader.read_count("texture count")? {
         let name = reader.read_string()?;
         let _hash = reader.read_string()?;
