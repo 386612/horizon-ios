@@ -12394,11 +12394,19 @@ fn load_world_rest(
                             .filter(|animation| animation.model_id == 1)
                             .cloned()
                             .collect();
-                        if let Some(preview) = loaded.resource.metadata.as_ref()
-                            .map(|metadata| metadata.preview_animation.as_str())
-                            .filter(|name| !name.is_empty())
-                        {
-                            animations.sort_by_key(|animation| animation.name != preview);
+                        let selected_animation = std::fs::read_to_string(
+                            game_root.join("config/ysm/active_animation.txt"),
+                        )
+                        .ok()
+                        .map(|value| value.trim().to_owned())
+                        .filter(|value| !value.is_empty());
+                        let preferred_animation = selected_animation.as_deref().or_else(|| {
+                            loaded.resource.metadata.as_ref()
+                                .map(|metadata| metadata.preview_animation.as_str())
+                                .filter(|name| !name.is_empty())
+                        });
+                        if let Some(preferred) = preferred_animation {
+                            animations.sort_by_key(|animation| animation.name != preferred);
                         }
                         horizon_client::mobs::ysm_model::register_default_animations(
                             texture_path.clone(),

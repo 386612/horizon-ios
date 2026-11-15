@@ -29,6 +29,7 @@ The model directory is relative to Horizon's game working directory:
 config/
 └── ysm/
     ├── active.txt        # optional exact .ysm filename to select
+    ├── active_animation.txt # optional exact main-model animation name
     └── models/
         ├── model1.ysm
         └── model2.ysm
@@ -41,7 +42,8 @@ wrapper is required.
 For formats 4–9, the loader also reads the YSM metadata footer (model name,
 tips, license, authors, links, scaling values, default texture, preview
 animation, and extra-animation declarations). The default texture and preview
-animation are used when present. This metadata support does not yet provide
+animation are used when present; `active_animation.txt` can override the
+preview animation by exact animation name. This metadata support does not yet provide
 the full in-game extra-animation selector or animation-controller behavior.
 
 ## Upstream algorithm and attribution
