@@ -904,9 +904,12 @@ fn controller_next_state(
 ) -> String {
     let mut next_state = current_state.to_owned();
     if let Some((_, state)) = controller.states.iter().find(|(name, _)| name == current_state) {
-        // Serialized transitions are (target state, condition), in declaration order.
-        for (target, condition) in &state.transitions {
-            if eval_molang_with_context(condition, context).is_some_and(|value| value != 0.0) {
+        // The binary stores each transition as (condition, target state),
+        // matching the condition-first order in the YSM resource parser.
+        for (condition, target) in &state.transitions {
+            if eval_molang_with_context(condition, context).is_some_and(|value| value != 0.0)
+                && controller.states.iter().any(|(name, _)| name == target)
+            {
                 next_state = target.clone();
                 break;
             }
@@ -1042,7 +1045,8 @@ mod animation_sampling_tests {
             states: vec![
                 ("idle".into(), horizon_ysm::YsmControllerState {
                     animations: vec![("animation.idle".into(), String::new())],
-                    transitions: vec![("run".into(), "query.anim_time > 1".into())],
+                    // Serialized YSM order is condition first, target state second.
+                    transitions: vec![("query.anim_time > 1".into(), "run".into())],
                     ..Default::default()
                 }),
                 ("run".into(), horizon_ysm::YsmControllerState {
