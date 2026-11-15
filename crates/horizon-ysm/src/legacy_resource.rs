@@ -1,4 +1,4 @@
-//! Legacy YSM resource table reader for format versions 4 through 9.
+//! Legacy YSM resource table reader for format versions 4 through 15.
 use crate::resource::{
     encode_rgba_texture, parse_model_record, ResourceError, ResourceReader, YsmModel, YsmTexture,
 };
@@ -512,6 +512,70 @@ fn read_molang_triplet(
     }
     values.try_into()
         .map_err(|_| ResourceError::InvalidModel("animation vector must have three values"))
+}
+
+#[cfg(test)]
+mod format_10_tests {
+    use super::*;
+
+    fn varint(out: &mut Vec<u8>, mut value: u64) {
+        while value >= 0x80 { out.push((value as u8) | 0x80); value >>= 7; }
+        out.push(value as u8);
+    }
+    fn string(out: &mut Vec<u8>, value: &str) {
+        varint(out, value.len() as u64);
+        out.extend_from_slice(value.as_bytes());
+    }
+    fn f32le(out: &mut Vec<u8>, value: f32) {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+
+    #[test]
+    fn parses_format_ten_controllers_and_sound_records() {
+        let mut data = Vec::new();
+        data.extend_from_slice(&10u32.to_le_bytes());
+        varint(&mut data, 0); // prefix
+        varint(&mut data, 0); // models
+        varint(&mut data, 0); // animations
+        varint(&mut data, 1); // controllers
+        varint(&mut data, 0); // legacy controller hash/index
+        varint(&mut data, 1); // controller animation entries
+        string(&mut data, "controller.animation.test");
+        string(&mut data, "default");
+        varint(&mut data, 1); // states
+        string(&mut data, "default");
+        varint(&mut data, 1); string(&mut data, "animation.test"); string(&mut data, "");
+        varint(&mut data, 1); string(&mut data, "query.is_running"); string(&mut data, "default");
+        varint(&mut data, 1); string(&mut data, "event.start");
+        varint(&mut data, 1); string(&mut data, "event.stop");
+        varint(&mut data, 1); f32le(&mut data, 0.25); // blend transition
+        varint(&mut data, 1); // shortest path
+        varint(&mut data, 1); string(&mut data, "controller"); string(&mut data, "controller-hash");
+        varint(&mut data, 0); // textures
+        varint(&mut data, 1); // sounds
+        string(&mut data, "sound.test");
+        varint(&mut data, 3); data.extend_from_slice(b"ogg");
+        varint(&mut data, 1); string(&mut data, "sound.test"); string(&mut data, "sound-hash");
+        varint(&mut data, 0); // extra textures
+        varint(&mut data, 0); // model hash table
+        varint(&mut data, 0); // animation hash table
+        varint(&mut data, 0); // texture hash table
+        string(&mut data, ""); varint(&mut data, 0); // no metadata footer
+
+        let (resource, consumed) = parse_resource_v4_v15(&data, 10).unwrap();
+        assert_eq!(consumed, data.len());
+        assert_eq!(resource.controllers.len(), 1);
+        assert_eq!(resource.controllers[0].name, "controller.animation.test");
+        assert_eq!(resource.controllers[0].initial_state, "default");
+        let state = &resource.controllers[0].states[0].1;
+        assert_eq!(state.animations[0].0, "animation.test");
+        assert_eq!(state.transitions[0].0, "query.is_running");
+        assert_eq!(state.blend_transition, Some(0.25));
+        assert!(state.blend_via_shortest_path);
+        assert_eq!(resource.sounds[0].name, "sound.test");
+        assert_eq!(resource.sounds[0].data, b"ogg");
+        assert!(resource.metadata.is_none());
+    }
 }
 
 #[cfg(test)]

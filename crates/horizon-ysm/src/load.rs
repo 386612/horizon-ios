@@ -27,7 +27,7 @@ impl std::fmt::Display for LoadError {
             Self::Header(e) => write!(f, "invalid YSM header: {e}"),
             Self::Decrypt(e) => write!(f, "could not decrypt YSM file: {e}"),
             Self::Resource(e) => write!(f, "could not parse YSM resources: {e}"),
-            Self::UnsupportedFormat(v) => write!(f, "YSM format {v} is not yet supported by the resource decoder"),
+            Self::UnsupportedFormat(v) => write!(f, "YSM format {v} is not supported by the legacy resource decoder (supported: 4-15)"),
         }
     }
 }
