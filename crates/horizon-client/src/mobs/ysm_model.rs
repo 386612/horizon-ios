@@ -377,6 +377,153 @@ pub fn apply_default_animation(
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+enum MolangToken {
+    Number(f32),
+    Ident(String),
+    Plus, Minus, Star, Slash, Percent,
+    LeftParen, RightParen, Comma,
+}
+
+fn tokenize_molang(source: &str) -> Option<Vec<MolangToken>> {
+    let source = source.trim().strip_prefix("return ").unwrap_or(source.trim()).trim_end_matches(';').trim();
+    let bytes = source.as_bytes();
+    let mut i = 0;
+    let mut tokens = Vec::new();
+    while i < bytes.len() {
+        let c = bytes[i] as char;
+        if c.is_ascii_whitespace() { i += 1; continue; }
+        let simple = match c {
+            '+' => Some(MolangToken::Plus), '-' => Some(MolangToken::Minus),
+            '*' => Some(MolangToken::Star), '/' => Some(MolangToken::Slash),
+            '%' => Some(MolangToken::Percent), '(' => Some(MolangToken::LeftParen),
+            ')' => Some(MolangToken::RightParen), ',' => Some(MolangToken::Comma),
+            _ => None,
+        };
+        if let Some(token) = simple { tokens.push(token); i += 1; continue; }
+        if c.is_ascii_digit() || c == '.' {
+            let start = i;
+            i += 1;
+            while i < bytes.len() && ((bytes[i] as char).is_ascii_digit() || matches!(bytes[i] as char, '.' | 'e' | 'E' | '+' | '-') && (bytes[i-1] as char).is_ascii_digit() == false) {
+                // A sign belongs to a number only immediately after an exponent.
+                if matches!(bytes[i] as char, '+' | '-') && !matches!(bytes[i-1] as char, 'e' | 'E') { break; }
+                i += 1;
+            }
+            let value = source.get(start..i)?.parse::<f32>().ok()?;
+            if !value.is_finite() { return None; }
+            tokens.push(MolangToken::Number(value));
+            continue;
+        }
+        if c.is_ascii_alphabetic() || c == '_' {
+            let start = i;
+            i += 1;
+            while i < bytes.len() && ((bytes[i] as char).is_ascii_alphanumeric() || matches!(bytes[i] as char, '_' | '.')) { i += 1; }
+            tokens.push(MolangToken::Ident(source.get(start..i)?.to_owned()));
+            continue;
+        }
+        return None;
+    }
+    Some(tokens)
+}
+
+struct MolangParser {
+    tokens: Vec<MolangToken>,
+    cursor: usize,
+    anim_time: f32,
+}
+
+impl MolangParser {
+    fn expression(&mut self) -> Option<f32> { self.additive() }
+    fn additive(&mut self) -> Option<f32> {
+        let mut value = self.multiplicative()?;
+        loop {
+            match self.tokens.get(self.cursor) {
+                Some(MolangToken::Plus) => { self.cursor += 1; value += self.multiplicative()?; }
+                Some(MolangToken::Minus) => { self.cursor += 1; value -= self.multiplicative()?; }
+                _ => break,
+            }
+        }
+        Some(value)
+    }
+    fn multiplicative(&mut self) -> Option<f32> {
+        let mut value = self.unary()?;
+        loop {
+            match self.tokens.get(self.cursor) {
+                Some(MolangToken::Star) => { self.cursor += 1; value *= self.unary()?; }
+                Some(MolangToken::Slash) => { self.cursor += 1; let rhs = self.unary()?; if rhs == 0.0 { return None; } value /= rhs; }
+                Some(MolangToken::Percent) => { self.cursor += 1; let rhs = self.unary()?; if rhs == 0.0 { return None; } value %= rhs; }
+                _ => break,
+            }
+        }
+        Some(value)
+    }
+    fn unary(&mut self) -> Option<f32> {
+        match self.tokens.get(self.cursor) {
+            Some(MolangToken::Plus) => { self.cursor += 1; self.unary() }
+            Some(MolangToken::Minus) => { self.cursor += 1; Some(-self.unary()?) }
+            _ => self.primary(),
+        }
+    }
+    fn primary(&mut self) -> Option<f32> {
+        match self.tokens.get(self.cursor)?.clone() {
+            MolangToken::Number(value) => { self.cursor += 1; Some(value) }
+            MolangToken::LeftParen => {
+                self.cursor += 1;
+                let value = self.expression()?;
+                if self.tokens.get(self.cursor) != Some(&MolangToken::RightParen) { return None; }
+                self.cursor += 1;
+                Some(value)
+            }
+            MolangToken::Ident(name) => {
+                self.cursor += 1;
+                if self.tokens.get(self.cursor) == Some(&MolangToken::LeftParen) {
+                    self.cursor += 1;
+                    let mut args = Vec::new();
+                    if self.tokens.get(self.cursor) != Some(&MolangToken::RightParen) {
+                        loop {
+                            args.push(self.expression()?);
+                            if self.tokens.get(self.cursor) == Some(&MolangToken::Comma) { self.cursor += 1; continue; }
+                            break;
+                        }
+                    }
+                    if self.tokens.get(self.cursor) != Some(&MolangToken::RightParen) { return None; }
+                    self.cursor += 1;
+                    return match (name.as_str(), args.as_slice()) {
+                        ("math.sin", [x]) => Some(x.sin()),
+                        ("math.cos", [x]) => Some(x.cos()),
+                        ("math.abs", [x]) => Some(x.abs()),
+                        ("math.floor", [x]) => Some(x.floor()),
+                        ("math.ceil", [x]) => Some(x.ceil()),
+                        ("math.round", [x]) => Some(x.round()),
+                        ("math.sqrt", [x]) if *x >= 0.0 => Some(x.sqrt()),
+                        ("math.min", [a,b]) => Some(a.min(*b)),
+                        ("math.max", [a,b]) => Some(a.max(*b)),
+                        ("math.clamp", [x,a,b]) => Some(x.clamp(*a,*b)),
+                        ("math.lerp", [a,b,t]) => Some(a + (b-a)*t),
+                        _ => None,
+                    };
+                }
+                match name.as_str() {
+                    "query.anim_time" | "query.life_time" | "query.time" => Some(self.anim_time),
+                    "math.pi" => Some(std::f32::consts::PI),
+                    "math.tau" => Some(std::f32::consts::TAU),
+                    "math.e" => Some(std::f32::consts::E),
+                    "true" => Some(1.0),
+                    "false" => Some(0.0),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
+fn eval_molang(expression: &str, anim_time: f32) -> Option<f32> {
+    let mut parser = MolangParser { tokens: tokenize_molang(expression)?, cursor: 0, anim_time };
+    let value = parser.expression()?;
+    (parser.cursor == parser.tokens.len() && value.is_finite()).then_some(value)
+}
+
 fn sample_numeric_channel(
     channel: &horizon_ysm::YsmAnimationChannel,
     time: f32,
@@ -385,10 +532,14 @@ fn sample_numeric_channel(
     let first = frames.first()?;
     let numeric = |values: &[YsmMolangValue; 3]| -> Option<[f32; 3]> {
         let result = std::array::from_fn(|i| match &values[i] {
-            YsmMolangValue::Number(value) => *value,
-            YsmMolangValue::Expression(_) => f32::NAN,
+            YsmMolangValue::Number(value) => Some(*value),
+            YsmMolangValue::Expression(expression) => eval_molang(expression, time),
         });
-        result.iter().all(|value| value.is_finite()).then_some(result)
+        Some([
+            result[0]?,
+            result[1]?,
+            result[2]?,
+        ])
     };
     if time <= first.time {
         return numeric(&first.post);
@@ -455,6 +606,14 @@ mod animation_sampling_tests {
             keyframes: vec![frame(0.0, 2.0, 1), frame(1.0, 10.0, 0)],
         };
         assert_eq!(sample_numeric_channel(&step, 0.5), Some([2.0; 3]));
+    }
+
+    #[test]
+    fn evaluates_common_molang_math_and_animation_queries() {
+        assert_eq!(eval_molang("query.anim_time * 2 + 1", 3.0), Some(7.0));
+        assert_eq!(eval_molang("math.sin(math.pi / 2)", 0.0), Some(1.0));
+        assert_eq!(eval_molang("math.clamp(query.life_time, 0, 2)", 3.0), Some(2.0));
+        assert_eq!(eval_molang("unknown.query", 1.0), None);
     }
 
     #[test]
