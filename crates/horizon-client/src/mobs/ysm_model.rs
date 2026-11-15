@@ -680,11 +680,11 @@ impl MolangParser {
                     "query.is_moving" => Some(self.context.is_moving as u8 as f32),
                     "query.is_on_ground" => Some(self.context.is_on_ground as u8 as f32),
                     "query.is_sprinting" => Some(self.context.is_sprinting as u8 as f32),
-                    "query.is_sneaking" => Some(self.context.is_sneaking as u8 as f32),
+                    "query.is_sneaking" | "query.is_crouching" => Some(self.context.is_sneaking as u8 as f32),
                     "query.is_baby" => Some(self.context.is_baby as u8 as f32),
                     "query.is_alive" => Some(self.context.is_alive as u8 as f32),
                     "query.is_climbing" => Some(self.context.is_climbing as u8 as f32),
-                    "query.is_passenger" => Some(self.context.is_passenger as u8 as f32),
+                    "query.is_passenger" | "query.is_riding" => Some(self.context.is_passenger as u8 as f32),
                     "math.pi" => Some(std::f32::consts::PI),
                     "math.tau" => Some(std::f32::consts::TAU),
                     "math.e" => Some(std::f32::consts::E),
@@ -855,8 +855,15 @@ mod animation_sampling_tests {
         assert_eq!(eval_molang("query.anim_time > 2 && query.anim_time <= 4", 3.0), Some(1.0));
         assert_eq!(eval_molang("!(query.anim_time < 2)", 3.0), Some(1.0));
         assert_eq!(eval_molang("query.anim_time > 2 ? 10 : 0", 3.0), Some(10.0));
-        let context = MolangContext { is_on_ground: true, ground_speed: 0.8, ..MolangContext::default() };
+        let context = MolangContext {
+            is_on_ground: true,
+            is_in_water: true,
+            is_sneaking: true,
+            ground_speed: 0.8,
+            ..MolangContext::default()
+        };
         assert_eq!(eval_molang_with_context("query.is_on_ground && query.ground_speed > 0.5", context), Some(1.0));
+        assert_eq!(eval_molang_with_context("query.is_in_water && query.is_crouching", context), Some(1.0));
         assert_eq!(eval_molang("math.sin(90)", 0.0), Some(1.0));
         assert_eq!(eval_molang("math.clamp(query.life_time, 0, 2)", 3.0), Some(2.0));
         assert_eq!(eval_molang("unknown.query", 1.0), None);
