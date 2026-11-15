@@ -186,7 +186,7 @@ pub fn parse_resource_v4_v15(
             // In formats through 15 the outer controller is stored under a
             // generic name and carries an unused hash/index varint.
             let _controller_hash = reader.read_varint()?;
-            controllers.push(parse_controller(&mut reader)?);
+            controllers.extend(parse_controller_group(&mut reader, expected_format)?);
         }
         for _ in 0..reader.read_count("animation controller hash table count")? {
             let _name = reader.read_string()?;
@@ -323,7 +323,7 @@ pub fn parse_resource_v16_v25(
         }
         if reader.read_varint()? != 0 {
             let _controller_hash = reader.read_string()?;
-            controllers.push(parse_controller(&mut reader)?);
+            controllers.extend(parse_controller_group(&mut reader, expected_format)?);
         }
         let _texture_hash = reader.read_string()?;
         let texture_data = reader.read_bytes()?;
@@ -633,11 +633,16 @@ fn parse_ysm_metadata(
     }))
 }
 
-fn parse_controller(reader: &mut ResourceReader<'_>) -> Result<YsmAnimationController, ResourceError> {
-    let name = reader.read_string()?;
-    let initial_state = reader.read_string()?;
-    let mut states = Vec::new();
-    for _ in 0..reader.read_count("controller state count")? {
+fn parse_controller_group(
+    reader: &mut ResourceReader<'_>,
+    format: u32,
+) -> Result<Vec<YsmAnimationController>, ResourceError> {
+    let mut controllers = Vec::new();
+    for _ in 0..reader.read_count("controller count")? {
+        let name = reader.read_string()?;
+        let initial_state = reader.read_string()?;
+        let mut states = Vec::new();
+        for _ in 0..reader.read_count("controller state count")? {
         let state_name = reader.read_string()?;
         let mut state = YsmControllerState::default();
         for _ in 0..reader.read_count("controller animation count")? {
@@ -659,10 +664,17 @@ fn parse_controller(reader: &mut ResourceReader<'_>) -> Result<YsmAnimationContr
                 state.blend_transitions.push((reader.read_f32()?, reader.read_f32()?));
             }
         }
-        state.blend_via_shortest_path = reader.read_varint()? != 0;
-        states.push((state_name, state));
+            state.blend_via_shortest_path = reader.read_varint()? != 0;
+            if format > 26 {
+                for _ in 0..reader.read_count("controller sound effect count")? {
+                    let _effect_name = reader.read_string()?;
+                }
+            }
+            states.push((state_name, state));
+        }
+        controllers.push(YsmAnimationController { name, initial_state, states });
     }
-    Ok(YsmAnimationController { name, initial_state, states })
+    Ok(controllers)
 }
 
 fn parse_animation_group(
