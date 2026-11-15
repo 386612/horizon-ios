@@ -156,7 +156,6 @@ pub fn parse_resource_v4_v15(
     let prefix_len = reader.read_count("prefix length")?;
     reader.read_exact(prefix_len)?;
 
-    let mut models = Vec::new();
     for _ in 0..reader.read_count("model count")? {
         let id = reader.read_varint()?;
         let _unknown = reader.read_varint()?;
@@ -314,6 +313,7 @@ pub fn parse_resource_v16_v26(
     let mut animations = Vec::new();
     let mut controllers = Vec::new();
     let mut textures = Vec::new();
+    let mut models = Vec::new();
     // Format 16-26 has one named sub-entity section. Its model is duplicated
     // in the final model table, where ids 1 and 2 identify main and arm.
     for _ in 0..reader.read_count("sub-entity count")? {
@@ -356,8 +356,14 @@ pub fn parse_resource_v16_v26(
             }
         }
         let start = reader.position();
-        let (_model, consumed) = parse_model_record(&bytes[start..], expected_format)?;
+        let (model, consumed) = parse_model_record(&bytes[start..], expected_format)?;
         reader.read_exact(consumed)?;
+        let model_name = if matches!(_sub_entity_name.as_str(), "main" | "arm") {
+            _sub_entity_name.clone()
+        } else {
+            format!("subentity/{_sub_entity_name}")
+        };
+        models.push((model_name, model));
     }
     if reader.read_varint()? != 1 {
         return Err(ResourceError::InvalidModel("invalid modern sub-entity footer flag"));
