@@ -107,7 +107,7 @@ mod directory_load_tests {
             "broken.ysm"
         );
         assert!(matches!(
-            entries[0].result,
+            entries[0].result.as_ref(),
             Err(LoadError::Header(crate::HeaderError::BadMagic))
         ));
 
