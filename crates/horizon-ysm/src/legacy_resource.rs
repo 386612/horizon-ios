@@ -280,6 +280,28 @@ pub fn parse_resource_v4_v15(
     ))
 }
 
+fn shared_model_name(id: u64, format: u32) -> String {
+    let name = match id {
+        1 => "main",
+        2 => "arm",
+        3 => "extra",
+        4 => "tac",
+        5 => "arrow",
+        6 => "carryon",
+        7 => "parcool",
+        8 => "swem",
+        9 => "slashblade",
+        10 => "tlm",
+        11 if format >= 32 => "fp.arm",
+        11 => "fp_arm",
+        12 => "immersive_melodies",
+        13 if format >= 32 => "iss",
+        13 => "irons_spell_books",
+        _ => return format!("unk_{id}"),
+    };
+    name.to_owned()
+}
+
 /// Parses the modern YSM resource layout used by formats 16 through 25.
 pub fn parse_resource_v16_v25(
     bytes: &[u8],
@@ -435,23 +457,8 @@ pub fn parse_resource_v16_v25(
         let start = reader.position();
         let (model, consumed) = parse_model_record(&bytes[start..], expected_format)?;
         reader.read_exact(consumed)?;
-        let name = match id {
-            1 => "main",
-            2 => "arm",
-            3 => "extra",
-            4 => "tac",
-            5 => "arrow",
-            6 => "carryon",
-            7 => "parcool",
-            8 => "swem",
-            9 => "slashblade",
-            10 => "tlm",
-            11 => "fp.arm",
-            12 => "immersive_melodies",
-            13 => "iss",
-            _ => "extra",
-        };
-        models.push((name.to_owned(), model));
+        let name = shared_model_name(id, expected_format);
+        models.push((name, model));
     }
 
     let metadata = parse_ysm_metadata(&mut reader, expected_format, Some(&mut textures))?;
@@ -569,12 +576,8 @@ pub fn parse_resource_v26_plus(
         let start = reader.position();
         let (model, consumed) = parse_model_record(&bytes[start..], expected_format)?;
         reader.read_exact(consumed)?;
-        let name = match id {
-            1 => "main",
-            2 => "arm",
-            _ => return Err(ResourceError::InvalidModel("unknown shared model id in format 26+")),
-        };
-        models.push((name.to_owned(), model));
+        let name = shared_model_name(id, expected_format);
+        models.push((name, model));
     }
 
     let metadata = parse_ysm_metadata(&mut reader, expected_format, Some(&mut textures))?;
@@ -1192,6 +1195,20 @@ mod format_16_tests {
         assert!(resource.controllers.is_empty());
         assert!(resource.sounds.is_empty());
         assert!(resource.metadata.is_none());
+    }
+}
+
+#[cfg(test)]
+mod shared_model_name_tests {
+    use super::*;
+
+    #[test]
+    fn keeps_unknown_model_ids_distinct_and_uses_versioned_first_person_names() {
+        assert_eq!(shared_model_name(11, 25), "fp_arm");
+        assert_eq!(shared_model_name(11, 32), "fp.arm");
+        assert_eq!(shared_model_name(13, 25), "irons_spell_books");
+        assert_eq!(shared_model_name(13, 32), "iss");
+        assert_eq!(shared_model_name(99, 32), "unk_99");
     }
 }
 
