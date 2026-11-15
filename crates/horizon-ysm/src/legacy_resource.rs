@@ -531,6 +531,62 @@ mod format_10_tests {
     }
 
     #[test]
+    fn parses_format_fifteen_extra_animation_ui_and_metadata_flags() {
+        let mut data = Vec::new();
+        data.extend_from_slice(&15u32.to_le_bytes());
+        for _ in 0..12 { varint(&mut data, 0); }
+        string(&mut data, "resource-sha");
+        varint(&mut data, 1); // metadata is present
+        varint(&mut data, 0); // reserved
+        string(&mut data, "Example");
+        string(&mut data, "tips");
+        string(&mut data, "CC0");
+        string(&mut data, "license");
+        varint(&mut data, 0); // authors
+        varint(&mut data, 0); // links
+        f32le(&mut data, 0.8);
+        f32le(&mut data, 0.65);
+        varint(&mut data, 1); // extra animations
+        string(&mut data, "wave");
+        string(&mut data, "animation.wave");
+        varint(&mut data, 1); // buttons
+        string(&mut data, "emote");
+        string(&mut data, "Wave");
+        varint(&mut data, 0); // reserved button flag
+        varint(&mut data, 1); // config forms
+        string(&mut data, "range");
+        string(&mut data, "Speed");
+        string(&mut data, "Animation speed");
+        string(&mut data, "1");
+        f32le(&mut data, 0.1);
+        f32le(&mut data, 0.0);
+        f32le(&mut data, 2.0);
+        varint(&mut data, 1); string(&mut data, "Fast"); string(&mut data, "query.speed > 1");
+        varint(&mut data, 1); // classify groups
+        string(&mut data, "emotes");
+        varint(&mut data, 1); string(&mut data, "wave"); string(&mut data, "animation.wave");
+        string(&mut data, "main"); // default texture
+        string(&mut data, "idle"); // preview animation
+        varint(&mut data, 1); // free
+        varint(&mut data, 0); // render layers first
+        varint(&mut data, 1); // all cutout
+        varint(&mut data, 1); // disable preview rotation
+
+        let (resource, consumed) = parse_resource_v4_v15(&data, 15).unwrap();
+        assert_eq!(consumed, data.len());
+        let metadata = resource.metadata.unwrap();
+        assert_eq!(metadata.name, "Example");
+        assert_eq!(metadata.extra_animations, vec![("wave".into(), "animation.wave".into())]);
+        assert_eq!(metadata.extra_animation_buttons[0].config_forms[0].kind, "range");
+        assert_eq!(metadata.extra_animation_buttons[0].config_forms[0].labels[0].0, "Fast");
+        assert_eq!(metadata.extra_animation_classify[0].id, "emotes");
+        assert_eq!(metadata.default_texture, "main");
+        assert_eq!(metadata.preview_animation, "idle");
+        assert_eq!(metadata.all_cutout, Some(true));
+        assert_eq!(metadata.disable_preview_rotation, Some(true));
+    }
+
+    #[test]
     fn parses_format_ten_controllers_and_sound_records() {
         let mut data = Vec::new();
         data.extend_from_slice(&10u32.to_le_bytes());
