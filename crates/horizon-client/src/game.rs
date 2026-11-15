@@ -12421,7 +12421,11 @@ fn load_world_rest(
                         horizon_client::mobs::ysm_model::register_default_animations(
                             texture_path.clone(),
                             animations,
-                            loaded.resource.controllers.clone(),
+                            if selected_animation.is_some() {
+                                Vec::new()
+                            } else {
+                                loaded.resource.controllers.clone()
+                            },
                         );
                         if let Some(player) = loaded_mob_types.types.get_mut("minecraft:player") {
                             player.model = converted.clone();
