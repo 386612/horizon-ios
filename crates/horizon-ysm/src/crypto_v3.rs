@@ -262,5 +262,67 @@ mod tests {
         assert!(matches!(wash_ysm_zstd(b"nope!"), Err(DecryptError::InvalidZstdFrame(_))));
     }
 
+    // Test-only inverse of the modified stream cipher, following the upstream
+    // rule that each state update hashes the plaintext chunk.
+    fn modified_xchacha_encrypt(data: &[u8], key: &[u8; 32], iv: &[u8; 24], seed: u64) -> Vec<u8> {
+        let mut key_iv = [0u8; 56];
+        key_iv[..32].copy_from_slice(key);
+        key_iv[32..].copy_from_slice(iv);
+        let hash2 = city_hash64_with_seed(&key_iv, seed);
+        let mut next_round_size = (((hash2 & 0x3f) | 0x40) << 6) as usize;
+        let initial_rounds = (10 * (hash2 % 3) + 10) as u32;
+        set_rounds(initial_rounds);
+        let mut state = xchacha_initial_state(key, iv, initial_rounds);
+        let mut output = Vec::with_capacity(data.len());
+        let mut offset = 0usize;
+        while offset < data.len() {
+            let take = next_round_size.min(data.len() - offset);
+            let plain = &data[offset..offset + take];
+            output.extend_from_slice(&chacha_xor(&mut state, plain));
+            let hash = city_hash64_with_seed(plain, seed);
+            next_round_size = update_xchacha_state(&mut state, hash);
+            offset += take;
+        }
+        output
+    }
+
+    fn ysm_raw_zstd_frame(plain: &[u8]) -> Vec<u8> {
+        assert!(plain.len() <= 0x1ffff);
+        let mut frame = vec![0x28, 0xb5, 0x2f, 0xfd, 0xa0];
+        frame.extend_from_slice(&(plain.len() as u32).to_le_bytes());
+        let raw_size = (plain.len() as u32) ^ 0xd4e9;
+        frame.push(0x80 | 0x60 | ((raw_size >> 16) as u8 & 0x1f));
+        frame.push(raw_size as u8);
+        frame.push((raw_size >> 8) as u8);
+        frame.extend_from_slice(plain);
+        frame
+    }
+
+    #[test]
+    fn decrypts_a_synthetic_crypto_v3_file_across_multiple_cipher_chunks() {
+        let plain: Vec<u8> = (0..10_000).map(|i| (i % 251) as u8).collect();
+        let compressed = ysm_raw_zstd_frame(&plain);
+        let mut nonce_and_frame = vec![0u8, 0u8];
+        nonce_and_frame.extend_from_slice(&compressed);
+
+        let key = [0x42; 32];
+        let iv = [0x24; 24];
+        let mut key_iv = [0u8; 56];
+        key_iv[..32].copy_from_slice(&key);
+        key_iv[32..].copy_from_slice(&iv);
+        let xor_seed = city_hash64_with_seed(&key_iv, SEED_KEY_DERIVATION);
+        let xorred = mt19937_64_xor(&nonce_and_frame, xor_seed);
+        let encrypted = modified_xchacha_encrypt(&xorred, &key, &iv, SEED_RES_VERIFICATION);
+
+        let mut file = b"YSGP<format> 4\\n<crypto> 3\\n\\0".to_vec();
+        file.extend_from_slice(&3u32.to_le_bytes());
+        file.extend_from_slice(&encrypted);
+        file.extend_from_slice(&key);
+        file.extend_from_slice(&iv);
+        let file_hash = city_hash64_with_seed(&file, SEED_FILE_VERIFICATION);
+        file.extend_from_slice(&file_hash.to_le_bytes());
+
+        assert_eq!(decrypt_container(&file).unwrap(), plain);
+    }
 
 }
