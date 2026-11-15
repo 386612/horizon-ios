@@ -23,7 +23,8 @@ and player-state queries such as movement, ground contact, sprinting, health, he
 controller state is tracked per entity; supported numeric Molang conditions
 select transitions, and multiple weighted animations can be blended. The full
 Bedrock/Molang language and entity-query catalog, event execution, and
-blend-transition behavior are not yet implemented. Formats above 25 (the newer multi-category modern resource layout), complete stateful controller execution, extra-animation UI, and the full first-person texture path are not yet complete. The separate
+`blend_transitions` map selection are not yet implemented; direct
+`blend_transition` durations are applied when controller states change. Formats above 25 (the newer multi-category modern resource layout), complete stateful controller execution, extra-animation UI, and the full first-person texture path are not yet complete. The separate
 YSM arm geometry is loaded when available.
 
 ## Direct `.ysm` model storage
