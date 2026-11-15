@@ -14,10 +14,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ysm_modified_cityhash_is_deterministic() {
+    fn ysm_modified_cityhash_matches_known_answers() {
         assert_eq!(
             city_hash64_with_seed(b"YSM", 0x9E5599DB80C67C29),
-            city_hash64_with_seed(b"YSM", 0x9E5599DB80C67C29)
+            0x41AD56AC59DD3F0E,
+        );
+        let long: Vec<u8> = (0..256).map(|i| (i * 37 + 11) as u8).collect();
+        assert_eq!(
+            city_hash64_with_seed(&long, 0x9E5599DB80C67C29),
+            0x359E71A77E4A081A,
         );
     }
 }
