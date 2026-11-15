@@ -378,7 +378,7 @@ pub fn parse_resource_v16_v25(
     for _ in 0..reader.read_count("animation controller count")? {
         let _controller_name = reader.read_string()?;
         let _controller_hash = reader.read_string()?;
-        controllers.push(parse_controller(&mut reader)?);
+        controllers.extend(parse_controller_group(&mut reader, expected_format)?);
     }
 
     for _ in 0..reader.read_count("texture count")? {
