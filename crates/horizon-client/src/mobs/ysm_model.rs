@@ -317,15 +317,25 @@ pub fn apply_registered_player_model(mob_type: &mut super::MobType) {
 }
 
 
+#[derive(Clone, Debug, Default)]
+struct YsmRuntimeAnimations {
+    animations: Vec<YsmAnimationInfo>,
+    controllers: Vec<horizon_ysm::YsmAnimationController>,
+}
+
 static DEFAULT_ANIMATIONS: std::sync::OnceLock<
-    std::sync::RwLock<HashMap<String, Vec<YsmAnimationInfo>>>,
+    std::sync::RwLock<HashMap<String, YsmRuntimeAnimations>>,
 > = std::sync::OnceLock::new();
 
-/// Registers the default animation tracks for a loaded YSM avatar texture.
-pub fn register_default_animations(texture: String, animations: Vec<YsmAnimationInfo>) {
+/// Registers decoded animation tracks and controller state graphs for a YSM avatar.
+pub fn register_default_animations(
+    texture: String,
+    animations: Vec<YsmAnimationInfo>,
+    controllers: Vec<horizon_ysm::YsmAnimationController>,
+) {
     let registry = DEFAULT_ANIMATIONS.get_or_init(|| std::sync::RwLock::new(HashMap::new()));
     registry.write().unwrap_or_else(std::sync::PoisonError::into_inner)
-        .insert(texture, animations);
+        .insert(texture, YsmRuntimeAnimations { animations, controllers });
 }
 
 /// Applies the selected preview/default animation for the YSM model. Numeric keyframes
@@ -338,11 +348,36 @@ pub fn apply_default_animation(
 ) {
     let registry = DEFAULT_ANIMATIONS.get_or_init(|| std::sync::RwLock::new(HashMap::new()));
     let guard = registry.read().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let Some(animation) = guard.get(texture).and_then(|animations| animations.first()) else {
-        return;
-    };
+    let Some(runtime) = guard.get(texture) else { return; };
+    if runtime.animations.is_empty() { return; }
+
+    let life_time = age_ticks / 20.0;
+    let mut selected = None;
+    if let Some(controller) = runtime.controllers.first() {
+        let mut state_name = controller.initial_state.as_str();
+        if let Some((_, state)) = controller.states.iter()
+            .find(|(name, _)| name == state_name)
+        {
+            // Evaluate supported numeric Molang transition conditions in declaration order.
+            for (condition, target) in &state.transitions {
+                if eval_molang(condition, life_time).is_some_and(|value| value != 0.0) {
+                    state_name = target;
+                    break;
+                }
+            }
+        }
+        if let Some((_, state)) = controller.states.iter().find(|(name, _)| name == state_name) {
+            if let Some((animation_name, _)) = state.animations.first() {
+                selected = runtime.animations.iter().find(|animation| {
+                    animation.name == *animation_name
+                        || animation.name == animation_name.strip_prefix("animation.").unwrap_or(animation_name)
+                });
+            }
+        }
+    }
+    let animation = selected.unwrap_or(&runtime.animations[0]);
     let duration = animation.duration_ticks / 20.0;
-    let mut time = age_ticks / 20.0;
+    let mut time = life_time;
     if duration > 0.0 && duration.is_finite() {
         time = match animation.loop_mode {
             1 => time.rem_euclid(duration),
@@ -351,9 +386,7 @@ pub fn apply_default_animation(
     }
     for bone in &animation.bones {
         for (channel_index, channel) in bone.channels.iter().enumerate() {
-            let Some(value) = sample_numeric_channel(channel, time) else {
-                continue;
-            };
+            let Some(value) = sample_numeric_channel(channel, time) else { continue; };
             let pose = poses.get(&bone.bone_name);
             match channel_index {
                 0 => {
