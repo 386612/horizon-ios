@@ -33,7 +33,9 @@ impl std::error::Error for YsmModelError {}
 /// Converts a decoded YSM model to the same Part/Polygon representation used
 /// by Horizon's mob renderer.
 ///
-/// YSM stores face vertices in model pixels and UVs in texture pixels. Its
+/// YSM stores face vertices in normalized model units (the upstream parser
+/// multiplies them by 16 when rebuilding Blockbench geometry) and UVs in
+/// texture pixels. Its
 /// coordinate convention mirrors X; bone pivots and rotations are converted
 /// to Horizon's model convention. Per-cube rotations are already represented
 /// by the face vertices, so no lossy cube reconstruction is needed here.
@@ -93,9 +95,9 @@ pub fn convert_ysm_model(model: &YsmModel) -> Result<Part, YsmModelError> {
                         let vertices = std::array::from_fn(|vertex_index| {
                             let vertex = &face.vertices[vertex_index];
                             [
-                                -vertex.position[0] - pivot[0],
-                                vertex.position[1] - pivot[1],
-                                vertex.position[2] - pivot[2],
+                                -vertex.position[0] * 16.0 - pivot[0],
+                                vertex.position[1] * 16.0 - pivot[1],
+                                vertex.position[2] * 16.0 - pivot[2],
                                 vertex.uv[0] / width,
                                 vertex.uv[1] / height,
                             ]
@@ -229,7 +231,7 @@ mod tests {
         assert_eq!(root.pose[0..3], [-2.0, 3.0, 4.0]);
         assert!((root.pose[3] + 0.1).abs() < 1e-6);
         let vertex = root.polygons[0].vertices[0];
-        assert_eq!(&vertex[..3], &[-2.0, 5.0, 8.0]);
+        assert_eq!(&vertex[..3], &[-62.0, 125.0, 188.0]);
         assert_eq!(&vertex[3..], &[0.5, 0.5]);
         assert_eq!(root.polygons[0].normal, [-1.0, 0.0, 0.0]);
     }
