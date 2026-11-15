@@ -290,22 +290,21 @@ pub(super) fn load_core(
     progress: &Progress,
     launch_world: Option<&str>,
 ) -> std::result::Result<std::result::Result<CoreTables, String>, String> {
-    // YSM textures are ordinary player-atlas sprites. Extract them before
-    // Assets::reload enumerates atlas sources, then reuse this parsed model
-    // during the later mob-table load instead of decrypting it a second time.
-    let ysm_model = if headless {
-        None
-    } else {
-        let game_root = std::env::current_dir().unwrap_or_default();
-        startup::time("core.ysm_player_model", || load_player_ysm(&game_root)).map(Arc::new)
-    };
     // The model library reads every file under `assets/` and needs no
     // block registry, so it is parsed beside `Assets::load` rather than
     // after it. It used to sit inside `reload` behind both the registry
     // read and the block facts; on a cold cache that read was most of a
     // second on the critical path, and warm it is still ~30 ms.
     // A server draws nothing and parses no models, so it skips this.
-    let (assets, parsed_models, entity_models) = std::thread::scope(|scope| {
+    let game_root = std::env::current_dir().unwrap_or_default();
+    let (assets, parsed_models, entity_models, ysm_model) = std::thread::scope(|scope| {
+        // YSM extraction and the registry read are independent. Finish both
+        // before assets.reload starts enumerating the atlas's sprite sources.
+        let ysm_model = (!headless).then(|| {
+            Step::spawn(scope, parallel, "ysm_player_model", || {
+                startup::time("core.ysm_player_model", || load_player_ysm(&game_root))
+            })
+        });
         let models = (parallel && !headless).then(|| {
             scope.spawn(|| {
                 let _step = startup::step("core.models_parse");
@@ -322,7 +321,8 @@ pub(super) fn load_core(
         let assets = startup::time("core.assets", || Assets::load(root));
         let models = models.map(|m| m.join().unwrap_or_else(|e| std::panic::resume_unwind(e)));
         let entity_models = entity_models.and_then(|step| step.join()).map(Arc::new);
-        (assets, models, entity_models)
+        let ysm_model = ysm_model.and_then(|step| step.join()).map(Arc::new);
+        (assets, models, entity_models, ysm_model)
     });
     let assets = match assets {
         Ok(assets) => assets,
