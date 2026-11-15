@@ -2070,7 +2070,7 @@ fn posed_body_stage(
         anim::vanilla_setup(m, &s, &mut poses, &data.animations);
     }
     if m.kind.texture.starts_with("entity/player/ysm/") {
-        super::ysm_model::apply_default_animation(&m.kind.texture, s.age, &mut poses);
+        super::ysm_model::apply_default_animation(&m.kind.texture, m, &s, &mut poses);
     }
     if let Some(c) = custom
         && let Some(animation) = &c.animation
@@ -2171,7 +2171,7 @@ fn render_visible(
     poses.reset(&model);
     anim::setup(m, &s, &mut poses, &data.animations);
     if m.kind.texture.starts_with("entity/player/ysm/") {
-        super::ysm_model::apply_default_animation(&m.kind.texture, s.age, &mut poses);
+        super::ysm_model::apply_default_animation(&m.kind.texture, m, &s, &mut poses);
     }
     if let Some(animation) = body_animation {
         animation.run(m, &s, &mut poses);

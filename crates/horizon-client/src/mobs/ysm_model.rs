@@ -343,7 +343,8 @@ pub fn register_default_animations(
 /// the parser; supported arithmetic and common math functions are evaluated.
 pub fn apply_default_animation(
     texture: &str,
-    age_ticks: f32,
+    mob: &super::Mob,
+    state: &super::anim::State,
     poses: &mut super::anim::Poses,
 ) {
     let registry = DEFAULT_ANIMATIONS.get_or_init(|| std::sync::RwLock::new(HashMap::new()));
@@ -351,16 +352,33 @@ pub fn apply_default_animation(
     let Some(runtime) = guard.get(texture) else { return; };
     if runtime.animations.is_empty() { return; }
 
-    let life_time = age_ticks / 20.0;
+    let base_context = MolangContext {
+        life_time: state.age / 20.0,
+        modified_distance_moved: state.pos,
+        ground_speed: state.speed,
+        head_x_rotation: state.x_rot,
+        head_y_rotation: state.y_rot,
+        attack_time: state.swing,
+        health: mob.health,
+        is_moving: state.speed > 0.01,
+        is_on_ground: mob.on_ground,
+        is_sprinting: mob.extra.sprinting,
+        is_sneaking: mob.extra.crouching,
+        is_baby: state.baby,
+        is_alive: mob.alive(),
+        is_climbing: mob.climbing,
+        is_passenger: mob.extra.passenger,
+        ..MolangContext::default()
+    };
     let selected = runtime.controllers.first()
-        .and_then(|controller| controller_animation_name(controller, life_time))
+        .and_then(|controller| controller_animation_name(controller, base_context))
         .and_then(|name| runtime.animations.iter().find(|animation| {
             animation.name.as_str() == name
                 || animation.name.as_str() == name.strip_prefix("animation.").unwrap_or(name)
         }));
     let animation = selected.unwrap_or(&runtime.animations[0]);
     let duration = animation.duration_ticks / 20.0;
-    let mut time = life_time;
+    let mut time = base_context.life_time;
     if duration > 0.0 && duration.is_finite() {
         time = match animation.loop_mode {
             1 => time.rem_euclid(duration),
@@ -369,7 +387,11 @@ pub fn apply_default_animation(
     }
     for bone in &animation.bones {
         for (channel_index, channel) in bone.channels.iter().enumerate() {
-            let Some(value) = sample_numeric_channel(channel, time) else { continue; };
+            let Some(value) = sample_numeric_channel_with_context(
+                channel,
+                time,
+                MolangContext { anim_time: time, ..base_context },
+            ) else { continue; };
             let pose = poses.get(&bone.bone_name);
             match channel_index {
                 0 => {
@@ -391,6 +413,26 @@ pub fn apply_default_animation(
             }
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct MolangContext {
+    anim_time: f32,
+    life_time: f32,
+    modified_distance_moved: f32,
+    ground_speed: f32,
+    head_x_rotation: f32,
+    head_y_rotation: f32,
+    attack_time: f32,
+    health: f32,
+    is_moving: bool,
+    is_on_ground: bool,
+    is_sprinting: bool,
+    is_sneaking: bool,
+    is_baby: bool,
+    is_alive: bool,
+    is_climbing: bool,
+    is_passenger: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -466,7 +508,7 @@ fn tokenize_molang(source: &str) -> Option<Vec<MolangToken>> {
 struct MolangParser {
     tokens: Vec<MolangToken>,
     cursor: usize,
-    anim_time: f32,
+    context: MolangContext,
 }
 
 impl MolangParser {
@@ -592,7 +634,22 @@ impl MolangParser {
                     };
                 }
                 match name.as_str() {
-                    "query.anim_time" | "query.life_time" | "query.time" => Some(self.anim_time),
+                    "query.anim_time" => Some(self.context.anim_time),
+                    "query.life_time" | "query.time" => Some(self.context.life_time),
+                    "query.modified_distance_moved" => Some(self.context.modified_distance_moved),
+                    "query.ground_speed" => Some(self.context.ground_speed),
+                    "query.head_x_rotation" => Some(self.context.head_x_rotation),
+                    "query.head_y_rotation" => Some(self.context.head_y_rotation),
+                    "query.attack_time" => Some(self.context.attack_time),
+                    "query.health" => Some(self.context.health),
+                    "query.is_moving" => Some(self.context.is_moving as u8 as f32),
+                    "query.is_on_ground" => Some(self.context.is_on_ground as u8 as f32),
+                    "query.is_sprinting" => Some(self.context.is_sprinting as u8 as f32),
+                    "query.is_sneaking" => Some(self.context.is_sneaking as u8 as f32),
+                    "query.is_baby" => Some(self.context.is_baby as u8 as f32),
+                    "query.is_alive" => Some(self.context.is_alive as u8 as f32),
+                    "query.is_climbing" => Some(self.context.is_climbing as u8 as f32),
+                    "query.is_passenger" => Some(self.context.is_passenger as u8 as f32),
                     "math.pi" => Some(std::f32::consts::PI),
                     "math.tau" => Some(std::f32::consts::TAU),
                     "math.e" => Some(std::f32::consts::E),
@@ -608,13 +665,13 @@ impl MolangParser {
 
 fn controller_animation_name<'a>(
     controller: &'a horizon_ysm::YsmAnimationController,
-    query_time: f32,
+    context: MolangContext,
 ) -> Option<&'a str> {
     let mut state_name = controller.initial_state.as_str();
     if let Some((_, state)) = controller.states.iter().find(|(name, _)| name == state_name) {
         // Serialized transitions are (target state, condition), in declaration order.
         for (target, condition) in &state.transitions {
-            if eval_molang(condition, query_time).is_some_and(|value| value != 0.0) {
+            if eval_molang_with_context(condition, context).is_some_and(|value| value != 0.0) {
                 state_name = target;
                 break;
             }
@@ -627,7 +684,15 @@ fn controller_animation_name<'a>(
 }
 
 fn eval_molang(expression: &str, anim_time: f32) -> Option<f32> {
-    let mut parser = MolangParser { tokens: tokenize_molang(expression)?, cursor: 0, anim_time };
+    eval_molang_with_context(expression, MolangContext {
+        anim_time,
+        life_time: anim_time,
+        ..MolangContext::default()
+    })
+}
+
+fn eval_molang_with_context(expression: &str, context: MolangContext) -> Option<f32> {
+    let mut parser = MolangParser { tokens: tokenize_molang(expression)?, cursor: 0, context };
     let value = parser.expression()?;
     (parser.cursor == parser.tokens.len() && value.is_finite()).then_some(value)
 }
@@ -636,12 +701,24 @@ fn sample_numeric_channel(
     channel: &horizon_ysm::YsmAnimationChannel,
     time: f32,
 ) -> Option<[f32; 3]> {
+    sample_numeric_channel_with_context(channel, time, MolangContext {
+        anim_time: time,
+        life_time: time,
+        ..MolangContext::default()
+    })
+}
+
+fn sample_numeric_channel_with_context(
+    channel: &horizon_ysm::YsmAnimationChannel,
+    time: f32,
+    context: MolangContext,
+) -> Option<[f32; 3]> {
     let frames = &channel.keyframes;
     let first = frames.first()?;
     let numeric = |values: &[YsmMolangValue; 3]| -> Option<[f32; 3]> {
         let result = std::array::from_fn(|i| match &values[i] {
             YsmMolangValue::Number(value) => Some(*value),
-            YsmMolangValue::Expression(expression) => eval_molang(expression, time),
+            YsmMolangValue::Expression(expression) => eval_molang_with_context(expression, context),
         });
         Some([
             result[0]?,
@@ -733,8 +810,8 @@ mod animation_sampling_tests {
                 }),
             ],
         };
-        assert_eq!(controller_animation_name(&controller, 0.5), Some("animation.idle"));
-        assert_eq!(controller_animation_name(&controller, 1.5), Some("animation.run"));
+        assert_eq!(controller_animation_name(&controller, MolangContext { life_time: 0.5, ..MolangContext::default() }), Some("animation.idle"));
+        assert_eq!(controller_animation_name(&controller, MolangContext { life_time: 1.5, ..MolangContext::default() }), Some("animation.run"));
     }
 
     #[test]
