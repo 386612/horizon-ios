@@ -298,10 +298,8 @@ mod tests {
         frame
     }
 
-    #[test]
-    fn decrypts_a_synthetic_crypto_v3_file_across_multiple_cipher_chunks() {
-        let plain: Vec<u8> = (0..10_000).map(|i| (i % 251) as u8).collect();
-        let compressed = ysm_raw_zstd_frame(&plain);
+    fn synthetic_crypto_v3_file(plain: &[u8]) -> Vec<u8> {
+        let compressed = ysm_raw_zstd_frame(plain);
         let mut nonce_and_frame = vec![0u8, 0u8];
         nonce_and_frame.extend_from_slice(&compressed);
 
@@ -314,15 +312,48 @@ mod tests {
         let xorred = mt19937_64_xor(&nonce_and_frame, xor_seed);
         let encrypted = modified_xchacha_encrypt(&xorred, &key, &iv, SEED_RES_VERIFICATION);
 
-        let mut file = b"YSGP<format> 4\n<crypto> 3\n\0".to_vec();
+        let mut file = b"YSGP<format> 4\\n<crypto> 3\\n\\0".to_vec();
         file.extend_from_slice(&3u32.to_le_bytes());
         file.extend_from_slice(&encrypted);
         file.extend_from_slice(&key);
         file.extend_from_slice(&iv);
         let file_hash = city_hash64_with_seed(&file, SEED_FILE_VERIFICATION);
         file.extend_from_slice(&file_hash.to_le_bytes());
+        file
+    }
 
+    #[test]
+    fn decrypts_a_synthetic_crypto_v3_file_across_multiple_cipher_chunks() {
+        let plain: Vec<u8> = (0..10_000).map(|i| (i % 251) as u8).collect();
+        let file = synthetic_crypto_v3_file(&plain);
         assert_eq!(decrypt_container(&file).unwrap(), plain);
+    }
+
+    #[test]
+    fn loads_a_synthetic_encrypted_format_four_resource() {
+        fn varint(out: &mut Vec<u8>, mut value: u64) {
+            while value >= 0x80 { out.push((value as u8) | 0x80); value >>= 7; }
+            out.push(value as u8);
+        }
+        fn string(out: &mut Vec<u8>, value: &str) {
+            varint(out, value.len() as u64);
+            out.extend_from_slice(value.as_bytes());
+        }
+
+        let mut resource = Vec::new();
+        resource.extend_from_slice(&4u32.to_le_bytes());
+        // Empty prefix, model, animation, texture, extra-texture and hash tables.
+        for _ in 0..8 { varint(&mut resource, 0); }
+        // YSM metadata footer: hash string followed by the legacy "not new" flag.
+        string(&mut resource, "");
+        varint(&mut resource, 0);
+
+        let file = synthetic_crypto_v3_file(&resource);
+        let loaded = crate::load_ysm_bytes(&file).unwrap();
+        assert_eq!(loaded.header.format, 4);
+        assert_eq!(loaded.resource.format, 4);
+        assert!(loaded.resource.models.is_empty());
+        assert!(loaded.resource.metadata.is_none());
     }
 
 }
