@@ -86,7 +86,9 @@ fn modified_xchacha_decrypt(data: &[u8], key: &[u8; 32], iv: &[u8; 24], seed: u6
     let hash2 = city_hash64_with_seed(&key_iv, seed);
     let mut next_round_size = (((hash2 & 0x3f) | 0x40) << 6) as usize;
     let mut rounds = (10 * (hash2 % 3) + 10) as u32;
-    let mut state = xchacha_initial_state(key, iv);
+    // OpenYSM's xchacha_keysetup derives the HChaCha subkey with ctx.rounds,
+    // which is initialized from hash2 before key setup (10, 20, or 30 rounds).
+    let mut state = xchacha_initial_state(key, iv, rounds);
     let mut output = Vec::with_capacity(data.len());
     let mut offset = 0usize;
 
@@ -112,15 +114,15 @@ fn update_xchacha_state(state: &mut [u32; 16], hash: u64) -> (usize, u32) {
     ((((hash & 0x3f) | 0x40) << 6) as usize, rounds)
 }
 
-fn xchacha_initial_state(key: &[u8; 32], iv: &[u8; 24]) -> [u32; 16] {
+fn xchacha_initial_state(key: &[u8; 32], iv: &[u8; 24], rounds: u32) -> [u32; 16] {
     let mut input = [0u32; 16];
     input[..4].copy_from_slice(&[0x6170_7865, 0x3320_646e, 0x7962_2d32, 0x6b20_6574]);
     for i in 0..8 {
         input[4 + i] = u32::from_le_bytes(key[i * 4..i * 4 + 4].try_into().unwrap());
     }
-    // XChaCha's HChaCha20 subkey derivation always uses 20 rounds.
-    // YSM's variable round count applies only to the subsequent stream cipher.
-    let subkey = hchacha20(&input, &iv[..16]);
+    // YSM uses the modified xchacha20 library: HChaCha key setup uses
+    // the same initial variable round count as the first stream block.
+    let subkey = hchacha20(&input, &iv[..16], rounds);
     input[4..12].copy_from_slice(&subkey[0..8]);
     input[12] = 0;
     input[13] = 0;
@@ -129,12 +131,12 @@ fn xchacha_initial_state(key: &[u8; 32], iv: &[u8; 24]) -> [u32; 16] {
     input
 }
 
-fn hchacha20(base: &[u32; 16], nonce: &[u8]) -> [u32; 8] {
+fn hchacha20(base: &[u32; 16], nonce: &[u8], rounds: u32) -> [u32; 8] {
     let mut x = *base;
     for i in 0..4 {
         x[12 + i] = u32::from_le_bytes(nonce[i * 4..i * 4 + 4].try_into().unwrap());
     }
-    chacha_rounds(&mut x, 20);
+    chacha_rounds(&mut x, rounds);
     [x[0], x[1], x[2], x[3], x[12], x[13], x[14], x[15]]
 }
 
@@ -237,27 +239,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hchacha20_uses_the_fixed_twenty_round_xchacha_subkey_schedule() {
-        // HChaCha20 known-answer vector from the XChaCha construction.
-        let mut input = [0u32; 16];
-        input[..4].copy_from_slice(&[
-            0x6170_7865, 0x3320_646e, 0x7962_2d32, 0x6b20_6574,
-        ]);
-        for i in 0..8 {
-            let key_word = [i * 4, i * 4 + 1, i * 4 + 2, i * 4 + 3];
-            input[4 + i] = u32::from_le_bytes(key_word.map(|v| v as u8));
-        }
-        let nonce = [
-            0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x4a,
-            0x00, 0x00, 0x00, 0x00, 0x31, 0x41, 0x59, 0x27,
-        ];
-        assert_eq!(
-            hchacha20(&input, &nonce),
-            [
-                0x423b_4182, 0xfe7b_b227, 0x5042_0ed3, 0x737d_878a,
-                0xd5e4_f9a0, 0x53a8_748a, 0x13c4_2ec1, 0xdcec_d326,
-            ],
-        );
+    fn ysm_xchacha_key_setup_uses_the_initial_variable_round_count() {
+        let key = [0x42; 32];
+        let iv = [0x24; 24];
+        let state10 = xchacha_initial_state(&key, &iv, 10);
+        let state20 = xchacha_initial_state(&key, &iv, 20);
+        let state30 = xchacha_initial_state(&key, &iv, 30);
+
+        // The upstream xchacha20 key-setup passes ctx.rounds into HChaCha.
+        // Therefore all three YSM round modes derive different subkeys.
+        assert_ne!(&state10[4..12], &state20[4..12]);
+        assert_ne!(&state20[4..12], &state30[4..12]);
+        assert_ne!(&state10[4..12], &state30[4..12]);
     }
 
     #[test]
