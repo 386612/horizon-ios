@@ -425,7 +425,7 @@ pub fn apply_default_animation(
             }
         }
     }
-    if selected_animations.is_empty() {
+    if selected_animations.is_empty() && runtime.controllers.is_empty() {
         let fallback = &runtime.animations[0];
         let blend_weight = match &fallback.blend_weight {
             Some(YsmMolangValue::Number(value)) if value.is_finite() => *value,
