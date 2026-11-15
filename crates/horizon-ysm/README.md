@@ -15,7 +15,8 @@ This crate currently:
 The public entry point is `decrypt_container(file_bytes)`. It returns the decompressed
 serialized YSM resource stream. The crate also has bounded geometry, texture, animation, animation-controller, sound and metadata decoders
 for YSM formats 4–26. The Horizon client converts the main model and extracted
-base texture into its avatar renderer. Numeric keyframes can drive the metadata preview animation (or the first
+base texture into its avatar renderer. Modern formats 16–26 use the sub-entity
+and image-file resource layout. Numeric keyframes can drive the metadata preview animation (or the first
 available animation when no preview is declared). Numeric Molang expressions
 support arithmetic, comparisons, boolean and ternary expressions, common math functions,
 and player-state queries such as movement, ground contact, sprinting, health, head rotation, fluid immersion and velocity. Legacy

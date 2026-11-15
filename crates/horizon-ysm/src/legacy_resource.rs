@@ -341,7 +341,6 @@ pub fn parse_resource_v16_v26(
         return Err(ResourceError::InvalidModel("invalid modern sub-entity footer flag"));
     }
 
-    let mut animations = Vec::new();
     for _ in 0..reader.read_count("animation count")? {
         let model_id = u32::try_from(reader.read_varint()?)
             .map_err(|_| ResourceError::LengthLimit("animation model id"))?;
@@ -428,7 +427,7 @@ fn parse_modern_image(
     }
 }
 
-/// Reads the YSM model metadata footer used by legacy formats 4-15.
+/// Reads the YSM model metadata footer used by YSM formats 4-26.
 fn parse_ysm_metadata(
     reader: &mut ResourceReader<'_>,
     format: u32,
@@ -698,6 +697,34 @@ fn read_molang_triplet(
     }
     values.try_into()
         .map_err(|_| ResourceError::InvalidModel("animation vector must have three values"))
+}
+
+#[cfg(test)]
+mod format_16_tests {
+    use super::*;
+
+    #[test]
+    fn parses_an_empty_modern_format_sixteen_resource() {
+        let mut data = Vec::new();
+        data.extend_from_slice(&16u32.to_le_bytes());
+        // sounds, functions, language files, sub-entities, then the sub-entity footer
+        for _ in 0..4 { data.push(0); }
+        data.push(1);
+        // animations, controllers, textures and model table
+        for _ in 0..4 { data.push(0); }
+        // metadata hash and "no metadata" flag
+        data.push(0);
+        data.push(0);
+        let (resource, consumed) = parse_resource_v16_v26(&data, 16).unwrap();
+        assert_eq!(consumed, data.len());
+        assert_eq!(resource.format, 16);
+        assert!(resource.models.is_empty());
+        assert!(resource.textures.is_empty());
+        assert!(resource.animations.is_empty());
+        assert!(resource.controllers.is_empty());
+        assert!(resource.sounds.is_empty());
+        assert!(resource.metadata.is_none());
+    }
 }
 
 #[cfg(test)]
