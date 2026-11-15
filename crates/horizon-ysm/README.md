@@ -19,9 +19,10 @@ base texture into its avatar renderer. Numeric keyframes can drive the metadata 
 available animation when no preview is declared). Numeric Molang expressions
 support arithmetic, comparisons, boolean and ternary expressions, common math functions,
 and player-state queries such as movement, ground contact, sprinting, health, head rotation, fluid immersion and velocity. Legacy
-controller initial-state animations and transitions with supported numeric
-Molang conditions can select tracks. The full Bedrock/Molang language and entity-query catalog, event execution,
-and blend-transition behavior are not yet implemented. Formats above 15 (the modern sub-entity resource layout), complete stateful controller execution, extra-animation UI, and the full first-person texture path are not yet complete. The separate
+controller state is tracked per entity; supported numeric Molang conditions
+select transitions, and multiple weighted animations can be blended. The full
+Bedrock/Molang language and entity-query catalog, event execution, and
+blend-transition behavior are not yet implemented. Formats above 15 (the modern sub-entity resource layout), complete stateful controller execution, extra-animation UI, and the full first-person texture path are not yet complete. The separate
 YSM arm geometry is loaded when available.
 
 ## Direct `.ysm` model storage
