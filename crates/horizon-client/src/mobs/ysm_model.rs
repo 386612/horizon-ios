@@ -617,7 +617,7 @@ mod animation_sampling_tests {
     #[test]
     fn evaluates_common_molang_math_and_animation_queries() {
         assert_eq!(eval_molang("query.anim_time * 2 + 1", 3.0), Some(7.0));
-        assert_eq!(eval_molang("math.sin(math.pi / 2)", 0.0), Some(1.0));
+        assert_eq!(eval_molang("math.sin(90)", 0.0), Some(1.0));
         assert_eq!(eval_molang("math.clamp(query.life_time, 0, 2)", 3.0), Some(2.0));
         assert_eq!(eval_molang("unknown.query", 1.0), None);
     }
