@@ -9,6 +9,8 @@ pub struct YsmResource {
     pub models: Vec<(String, YsmModel)>,
     pub textures: Vec<YsmTexture>,
     pub animations: Vec<YsmAnimationInfo>,
+    pub controllers: Vec<YsmAnimationController>,
+    pub sounds: Vec<YsmSound>,
     pub metadata: Option<YsmMetadata>,
 }
 
@@ -36,6 +38,32 @@ pub struct YsmMetadata {
     pub preview_animation: String,
     pub free: bool,
     pub render_layers_first: Option<bool>,
+    pub all_cutout: Option<bool>,
+    pub disable_preview_rotation: Option<bool>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct YsmSound {
+    pub name: String,
+    pub data: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct YsmControllerState {
+    pub animations: Vec<(String, String)>,
+    pub transitions: Vec<(String, String)>,
+    pub on_entry: Vec<String>,
+    pub on_exit: Vec<String>,
+    pub blend_transition: Option<f32>,
+    pub blend_transitions: Vec<(f32, f32)>,
+    pub blend_via_shortest_path: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct YsmAnimationController {
+    pub name: String,
+    pub initial_state: String,
+    pub states: Vec<(String, YsmControllerState)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -84,14 +112,14 @@ pub struct YsmAnimationInfo {
     pub timeline: Vec<YsmTimelineEvent>,
 }
 
-/// Parses the legacy resource layout used by YSM format versions 4-9.
+/// Parses the legacy resource layout used by YSM format versions 4-15.
 /// Animation records retain their numeric and Molang keyframes for runtime use.
-pub fn parse_resource_v4_v9(
+pub fn parse_resource_v4_v15(
     bytes: &[u8],
     expected_format: u32,
 ) -> Result<(YsmResource, usize), ResourceError> {
-    if !(4..=9).contains(&expected_format) {
-        return Err(ResourceError::InvalidModel("resource layout supports formats 4 through 9"));
+    if !(4..=15).contains(&expected_format) {
+        return Err(ResourceError::InvalidModel("resource layout supports formats 4 through 15"));
     }
     let mut reader = ResourceReader::new(bytes);
     if reader.read_u32()? != expected_format {
@@ -126,7 +154,23 @@ pub fn parse_resource_v4_v9(
         animations.push(animation);
     }
 
+    // Formats 10-15 add animation controllers before texture records.
+    let mut controllers = Vec::new();
+    if expected_format > 9 {
+        for _ in 0..reader.read_count("animation controller count")? {
+            // In formats through 15 the outer controller is stored under a
+            // generic name and carries an unused hash/index varint.
+            let _controller_hash = reader.read_varint()?;
+            controllers.push(parse_controller(&mut reader)?);
+        }
+        for _ in 0..reader.read_count("animation controller hash table count")? {
+            let _name = reader.read_string()?;
+            let _hash = reader.read_string()?;
+        }
+    }
+
     let mut textures = Vec::new();
+    let mut sounds = Vec::new();
     for _ in 0..reader.read_count("texture count")? {
         let name = reader.read_string()?;
         let rgba = reader.read_bytes()?;
@@ -149,6 +193,18 @@ pub fn parse_resource_v4_v9(
                 _ => "_special",
             };
             textures.push(encode_rgba_texture(format!("{name}{suffix}"), width, height, &rgba)?);
+        }
+    }
+
+    if expected_format > 9 {
+        for _ in 0..reader.read_count("sound count")? {
+            let name = reader.read_string()?;
+            let data = reader.read_bytes()?;
+            sounds.push(YsmSound { name, data });
+        }
+        for _ in 0..reader.read_count("sound hash table count")? {
+            let _name = reader.read_string()?;
+            let _hash = reader.read_string()?;
         }
     }
 
@@ -186,13 +242,15 @@ pub fn parse_resource_v4_v9(
             models,
             textures,
             animations,
+            controllers,
+            sounds,
             metadata,
         },
         reader.position(),
     ))
 }
 
-/// Reads the optional YSM model metadata footer used by legacy formats 4-9.
+/// Reads the YSM model metadata footer used by legacy formats 4-15.
 fn parse_ysm_metadata(
     reader: &mut ResourceReader<'_>,
     format: u32,
@@ -244,6 +302,16 @@ fn parse_ysm_metadata(
     } else {
         None
     };
+    let all_cutout = if format >= 15 {
+        Some(reader.read_varint()? != 0)
+    } else {
+        None
+    };
+    let disable_preview_rotation = if format >= 15 {
+        Some(reader.read_varint()? != 0)
+    } else {
+        None
+    };
 
     Ok(Some(YsmMetadata {
         sha256,
@@ -260,7 +328,41 @@ fn parse_ysm_metadata(
         preview_animation,
         free,
         render_layers_first,
+        all_cutout,
+        disable_preview_rotation,
     }))
+}
+
+fn parse_controller(reader: &mut ResourceReader<'_>) -> Result<YsmAnimationController, ResourceError> {
+    let name = reader.read_string()?;
+    let initial_state = reader.read_string()?;
+    let mut states = Vec::new();
+    for _ in 0..reader.read_count("controller state count")? {
+        let state_name = reader.read_string()?;
+        let mut state = YsmControllerState::default();
+        for _ in 0..reader.read_count("controller animation count")? {
+            state.animations.push((reader.read_string()?, reader.read_string()?));
+        }
+        for _ in 0..reader.read_count("controller transition count")? {
+            state.transitions.push((reader.read_string()?, reader.read_string()?));
+        }
+        for _ in 0..reader.read_count("controller on-entry count")? {
+            state.on_entry.push(reader.read_string()?);
+        }
+        for _ in 0..reader.read_count("controller on-exit count")? {
+            state.on_exit.push(reader.read_string()?);
+        }
+        if reader.read_varint()? != 0 {
+            state.blend_transition = Some(reader.read_f32()?);
+        } else {
+            for _ in 0..reader.read_count("controller blend transition count")? {
+                state.blend_transitions.push((reader.read_f32()?, reader.read_f32()?));
+            }
+        }
+        state.blend_via_shortest_path = reader.read_varint()? != 0;
+        states.push((state_name, state));
+    }
+    Ok(YsmAnimationController { name, initial_state, states })
 }
 
 fn parse_animation(
