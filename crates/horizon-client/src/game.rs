@@ -12322,11 +12322,17 @@ fn load_world_rest(
                                 continue;
                             }
                         };
-                        let Some(texture) = loaded.resource.textures.iter().find(|texture| {
-                            !texture.name.ends_with("_normal")
-                                && !texture.name.ends_with("_specular")
-                                && !texture.name.ends_with("_special")
-                        }) else {
+                        let default_texture = loaded.resource.metadata.as_ref()
+                            .map(|metadata| metadata.default_texture.as_str())
+                            .filter(|name| !name.is_empty());
+                        let Some(texture) = default_texture
+                            .and_then(|name| loaded.resource.textures.iter().find(|texture| texture.name == name))
+                            .or_else(|| loaded.resource.textures.iter().find(|texture| {
+                                !texture.name.ends_with("_normal")
+                                    && !texture.name.ends_with("_specular")
+                                    && !texture.name.ends_with("_special")
+                            }))
+                        else {
                             log::warn!("YSM model {} has no base texture", entry.path.display());
                             continue;
                         };

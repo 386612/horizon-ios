@@ -13,7 +13,7 @@ pub mod load;
 
 pub use load::{load_ysm_bytes, load_ysm_directory, load_ysm_file, DiscoveredYsm, LoadError, LoadedYsm};
 
-pub use legacy_resource::{parse_resource_v4_v9, YsmAnimationChannel, YsmAnimationInfo, YsmBoneAnimation, YsmKeyframe, YsmMolangValue, YsmResource, YsmTimelineEvent};
+pub use legacy_resource::{parse_resource_v4_v9, YsmAnimationChannel, YsmAnimationInfo, YsmBoneAnimation, YsmKeyframe, YsmMolangValue, YsmResource, YsmTimelineEvent, YsmAuthor, YsmMetadata};
 
 pub use resource::{encode_rgba_texture, parse_model_record, ResourceError, ResourceReader, YsmBone, YsmCube, YsmFace, YsmLegacyInfo, YsmModel, YsmTexture, YsmVertex};
 
