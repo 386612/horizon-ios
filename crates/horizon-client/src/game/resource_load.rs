@@ -177,6 +177,9 @@ fn extract_ysm_textures(
     let texture_root = game_root
         .join("config/ysm/models/.textures")
         .join(ysm_safe_component(stem));
+    if texture_root.exists() {
+        std::fs::remove_dir_all(&texture_root)?;
+    }
     std::fs::create_dir_all(&texture_root)?;
     for texture in &loaded.resource.textures {
         let name = ysm_safe_component(&texture.name);
@@ -769,4 +772,23 @@ pub(super) fn load_resources_with_access(
         pack,
         gui: loaded_gui,
     })
+}
+
+
+#[cfg(test)]
+mod ysm_texture_path_tests {
+    use super::*;
+
+    #[test]
+    fn ysm_texture_resource_and_extraction_paths_share_the_same_components() {
+        let model = std::path::Path::new("1.ysm");
+        assert_eq!(
+            ysm_texture_resource_path(model, "aru"),
+            "entity/player/ysm/1/aru",
+        );
+        assert_eq!(
+            ysm_texture_resource_path(std::path::Path::new("A model.ysm"), "body/diffuse"),
+            "entity/player/ysm/Amodel/bodydiffuse",
+        );
+    }
 }
