@@ -12436,7 +12436,15 @@ fn load_world_rest(
                             if selected_animation.is_some() {
                                 Vec::new()
                             } else {
-                                loaded.resource.controllers.clone()
+                                loaded.resource.controllers.iter()
+                                    // Category-local vehicle/projectile controllers are
+                                    // retained by the parser but must not drive the player.
+                                    .filter(|controller| {
+                                        !controller.name.starts_with("vehicle/")
+                                            && !controller.name.starts_with("projectiles/")
+                                    })
+                                    .cloned()
+                                    .collect()
                             },
                         );
                         if let Some(player) = loaded_mob_types.types.get_mut("minecraft:player") {
