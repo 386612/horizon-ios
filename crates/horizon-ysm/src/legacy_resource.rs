@@ -1,4 +1,4 @@
-//! YSM resource table readers for legacy formats 4-15 and modern formats 16-26.
+//! YSM resource table readers for legacy formats 4-15 and modern formats 16-25.
 use crate::resource::{
     encode_rgba_texture, parse_model_record, ResourceError, ResourceReader, YsmModel, YsmTexture,
 };
@@ -275,13 +275,13 @@ pub fn parse_resource_v4_v15(
     ))
 }
 
-/// Parses the modern YSM resource layout used by formats 16 through 26.
-pub fn parse_resource_v16_v26(
+/// Parses the modern YSM resource layout used by formats 16 through 25.
+pub fn parse_resource_v16_v25(
     bytes: &[u8],
     expected_format: u32,
 ) -> Result<(YsmResource, usize), ResourceError> {
-    if !(16..=26).contains(&expected_format) {
-        return Err(ResourceError::InvalidModel("modern resource layout supports formats 16 through 26"));
+    if !(16..=25).contains(&expected_format) {
+        return Err(ResourceError::InvalidModel("modern resource layout supports formats 16 through 25"));
     }
     let mut reader = ResourceReader::new(bytes);
     if reader.read_u32()? != expected_format {
@@ -314,7 +314,7 @@ pub fn parse_resource_v16_v26(
     let mut controllers = Vec::new();
     let mut textures = Vec::new();
     let mut models = Vec::new();
-    // Format 16-26 has one named sub-entity section. Its model is duplicated
+    // Format 16-25 has one named sub-entity section. Its model is duplicated
     // in the final model table, where ids 1 and 2 identify main and arm.
     for _ in 0..reader.read_count("sub-entity count")? {
         let _sub_entity_name = reader.read_string()?;
@@ -468,7 +468,7 @@ fn parse_modern_image(
     }
 }
 
-/// Reads the YSM model metadata footer used by YSM formats 4-26.
+/// Reads the YSM model metadata footer used by YSM formats 4-25.
 fn parse_ysm_metadata(
     reader: &mut ResourceReader<'_>,
     format: u32,
@@ -817,7 +817,7 @@ mod format_16_tests {
         varint(&mut data, 0); // models
         string(&mut data, ""); varint(&mut data, 0); // no metadata
 
-        let (resource, consumed) = parse_resource_v16_v26(&data, 16).unwrap();
+        let (resource, consumed) = parse_resource_v16_v25(&data, 16).unwrap();
         assert_eq!(consumed, data.len());
         assert_eq!(resource.textures.len(), 1);
         assert_eq!(resource.textures[0].name, "main");
@@ -836,7 +836,7 @@ mod format_16_tests {
         // metadata hash and "no metadata" flag
         data.push(0);
         data.push(0);
-        let (resource, consumed) = parse_resource_v16_v26(&data, 16).unwrap();
+        let (resource, consumed) = parse_resource_v16_v25(&data, 16).unwrap();
         assert_eq!(consumed, data.len());
         assert_eq!(resource.format, 16);
         assert!(resource.models.is_empty());
