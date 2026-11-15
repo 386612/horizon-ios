@@ -776,7 +776,7 @@ fn sample_numeric_channel_with_context(
     let first = frames.first()?;
     let numeric = |values: &[YsmMolangValue; 3]| -> Option<[f32; 3]> {
         let result = std::array::from_fn(|i| match &values[i] {
-            YsmMolangValue::Number(value) => Some(*value),
+            YsmMolangValue::Number(value) => value.is_finite().then_some(*value),
             YsmMolangValue::Expression(expression) => eval_molang_with_context(expression, context),
         });
         Some([
