@@ -317,7 +317,7 @@ pub fn register_default_animations(texture: String, animations: Vec<YsmAnimation
         .insert(texture, animations);
 }
 
-/// Applies the first animation for the selected YSM model. Numeric keyframes
+/// Applies the selected preview/default animation for the YSM model. Numeric keyframes
 /// are interpolated; expression-valued Molang components remain available in
 /// the parsed resource but are not evaluated by this numeric fallback.
 pub fn apply_default_animation(

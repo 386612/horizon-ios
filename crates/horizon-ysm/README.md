@@ -15,8 +15,9 @@ This crate currently:
 The public entry point is `decrypt_container(file_bytes)`. It returns the decompressed
 serialized YSM resource stream. The crate also has bounded geometry, texture and legacy animation-record decoders
 for YSM formats 4–9. The Horizon client converts the main model and extracted
-base texture into its avatar renderer. Numeric keyframes can drive the first
-animation; Molang expressions are retained but are not evaluated yet. Formats
+base texture into its avatar renderer. Numeric keyframes can drive the metadata preview animation (or the first
+available animation when no preview is declared); Molang expressions are
+retained but are not evaluated yet. Formats
 above 9, animation controllers, extra-animation UI, and the full YSM animation controller/first-person texture path are not yet complete. The separate
 YSM arm geometry is loaded when available.
 
