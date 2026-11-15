@@ -148,11 +148,22 @@ pub(super) struct LoadedPlayerYsm {
 }
 
 fn ysm_safe_component(value: &str) -> String {
-    let value: String = value.chars()
-        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_' || *ch == '-')
-        .take(64)
-        .collect();
-    if value.is_empty() { "model".to_owned() } else { value }
+    // Preserve non-ASCII YSM texture names without allowing path separators,
+    // traversal components, or collisions caused by simply deleting characters.
+    // Percent-encode every byte outside the portable filename alphabet.
+    let mut encoded = String::new();
+    for byte in value.bytes() {
+        let piece = if byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-') {
+            (byte as char).to_string()
+        } else {
+            format!("%{byte:02X}")
+        };
+        if encoded.len() + piece.len() > 180 {
+            break;
+        }
+        encoded.push_str(&piece);
+    }
+    if encoded.is_empty() { "model".to_owned() } else { encoded }
 }
 
 pub(super) fn ysm_texture_resource_path(path: &std::path::Path, texture_name: &str) -> String {
@@ -798,7 +809,16 @@ mod ysm_texture_path_tests {
         );
         assert_eq!(
             ysm_texture_resource_path(std::path::Path::new("A model.ysm"), "body/diffuse"),
-            "entity/player/ysm/Amodel/bodydiffuse",
+            "entity/player/ysm/A%20model%2Eysm/body%2Fdiffuse",
+        );
+        assert_eq!(
+            ysm_texture_resource_path(model, "哥斯拉"),
+            "entity/player/ysm/1/%E5%93%A5%E6%96%AF%E6%8B%89",
+        );
+        assert_ne!(
+            ysm_texture_resource_path(model, "哥斯拉"),
+            ysm_texture_resource_path(model, "Godzilla"),
+            "distinct Unicode and ASCII texture names must not collapse to the same file",
         );
     }
 }
