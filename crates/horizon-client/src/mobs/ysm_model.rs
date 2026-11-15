@@ -406,18 +406,35 @@ pub fn apply_default_animation(
                     animation.name.as_str() == name.as_str()
                         || animation.name.as_str() == name.strip_prefix("animation.").unwrap_or(name)
                 }) else { continue; };
+                let blend_weight = match &animation.blend_weight {
+                    Some(YsmMolangValue::Number(value)) if value.is_finite() => *value,
+                    Some(YsmMolangValue::Expression(expression)) => {
+                        eval_molang_with_context(expression, base_context).unwrap_or(1.0)
+                    }
+                    _ => 1.0,
+                };
+                let total_weight = animation_weight * blend_weight;
+                if total_weight == 0.0 { continue; }
                 if let Some((_, existing_weight)) = selected_animations.iter_mut()
                     .find(|(selected, _)| selected.name == animation.name)
                 {
-                    *existing_weight += animation_weight;
+                    *existing_weight += total_weight;
                 } else {
-                    selected_animations.push((animation, animation_weight));
+                    selected_animations.push((animation, total_weight));
                 }
             }
         }
     }
     if selected_animations.is_empty() {
-        selected_animations.push((&runtime.animations[0], 1.0));
+        let fallback = &runtime.animations[0];
+        let blend_weight = match &fallback.blend_weight {
+            Some(YsmMolangValue::Number(value)) if value.is_finite() => *value,
+            Some(YsmMolangValue::Expression(expression)) => {
+                eval_molang_with_context(expression, base_context).unwrap_or(1.0)
+            }
+            _ => 1.0,
+        };
+        selected_animations.push((fallback, blend_weight));
     }
 
     for (animation, animation_weight) in selected_animations {
