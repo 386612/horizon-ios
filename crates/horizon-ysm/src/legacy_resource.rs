@@ -157,6 +157,11 @@ pub fn parse_resource_v4_v15(
     let prefix_len = reader.read_count("prefix length")?;
     reader.read_exact(prefix_len)?;
 
+    // The legacy table owns its model and animation collections. Keep them
+    // separate from the format 16+ parser's similarly named tables below.
+    let mut models = Vec::new();
+    let mut animations = Vec::new();
+
     for _ in 0..reader.read_count("model count")? {
         let id = reader.read_varint()?;
         let _unknown = reader.read_varint()?;
