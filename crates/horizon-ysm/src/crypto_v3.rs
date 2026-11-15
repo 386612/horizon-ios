@@ -339,8 +339,7 @@ mod tests {
         let hash2 = city_hash64_with_seed(&key_iv, seed);
         let mut next_round_size = (((hash2 & 0x3f) | 0x40) << 6) as usize;
         let mut rounds = (10 * (hash2 % 3) + 10) as u32;
-        let initial_rounds = (10 * (hash2 % 3) + 10) as u32;
-        let mut state = xchacha_initial_state(key, iv, initial_rounds);
+        let mut state = xchacha_initial_state(key, iv, rounds);
         let mut output = Vec::with_capacity(data.len());
         let mut offset = 0usize;
         while offset < data.len() {
