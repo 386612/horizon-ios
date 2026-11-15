@@ -135,7 +135,126 @@ pub(super) struct CoreTables {
     pub(super) biomes: Arc<Biomes>,
     pub(super) environment: Environment,
     pub(super) collision: Arc<BlockCollisionRegistry<'static>>,
+    pub(super) ysm_model: Option<Arc<LoadedPlayerYsm>>,
 }
+/// A player YSM decoded before the renderer builds its sprite atlas. Its
+/// extracted textures must exist before RenderAssets::load enumerates atlas
+/// sprites; loading the file later in load_world_rest is too late for the atlas.
+pub(super) struct LoadedPlayerYsm {
+    pub(super) path: std::path::PathBuf,
+    pub(super) loaded: horizon_ysm::LoadedYsm,
+    pub(super) main_part: horizon_client::mobs::Part,
+    pub(super) texture_path: String,
+}
+
+fn ysm_safe_component(value: &str) -> String {
+    let value: String = value.chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_' || *ch == '-')
+        .take(64)
+        .collect();
+    if value.is_empty() { "model".to_owned() } else { value }
+}
+
+pub(super) fn ysm_texture_resource_path(path: &std::path::Path, texture_name: &str) -> String {
+    let stem = path.file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("model");
+    format!(
+        "entity/player/ysm/{}/{}",
+        ysm_safe_component(stem),
+        ysm_safe_component(texture_name),
+    )
+}
+
+fn extract_ysm_textures(
+    game_root: &std::path::Path,
+    path: &std::path::Path,
+    loaded: &horizon_ysm::LoadedYsm,
+) -> std::io::Result<()> {
+    let stem = path.file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("model");
+    let texture_root = game_root
+        .join("config/ysm/models/.textures")
+        .join(ysm_safe_component(stem));
+    std::fs::create_dir_all(&texture_root)?;
+    for texture in &loaded.resource.textures {
+        let name = ysm_safe_component(&texture.name);
+        std::fs::write(texture_root.join(format!("{name}.png")), &texture.png_bytes)?;
+    }
+    Ok(())
+}
+
+/// Select and decode the first usable model once, before atlas construction.
+/// The same parsed result is passed to load_world_rest, avoiding a second
+/// Crypto v3 decrypt/parse pass during startup.
+fn load_player_ysm(game_root: &std::path::Path) -> Option<LoadedPlayerYsm> {
+    let mut paths = match horizon_ysm::discover_models(game_root) {
+        Ok(paths) => paths,
+        Err(error) => {
+            log::warn!("Could not scan config/ysm/models: {error}");
+            return None;
+        }
+    };
+    if let Some(selected) = std::fs::read_to_string(game_root.join("config/ysm/active.txt"))
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+    {
+        if let Some(index) = paths.iter().position(|path| {
+            path.file_name().is_some_and(|name| name.to_string_lossy() == selected)
+        }) {
+            paths.swap(0, index);
+        }
+    }
+    for path in paths {
+        let loaded = match horizon_ysm::load_ysm_file(&path) {
+            Ok(loaded) => loaded,
+            Err(error) => {
+                log::warn!("YSM model {} could not be loaded: {error}", path.display());
+                continue;
+            }
+        };
+        let Some((_, model)) = loaded.resource.models.iter().find(|(name, _)| name == "main") else {
+            log::warn!("YSM model {} has no main model", path.display());
+            continue;
+        };
+        let main_part = match horizon_client::mobs::ysm_model::convert_ysm_model(model) {
+            Ok(part) => part,
+            Err(error) => {
+                log::warn!("YSM model {} could not be converted: {error}", path.display());
+                continue;
+            }
+        };
+        let default_texture = loaded.resource.metadata.as_ref()
+            .map(|metadata| metadata.default_texture.as_str())
+            .filter(|name| !name.is_empty());
+        let Some(texture) = default_texture
+            .and_then(|name| loaded.resource.textures.iter().find(|texture| texture.name == name))
+            .or_else(|| loaded.resource.textures.iter().find(|texture| {
+                !texture.name.ends_with("_normal")
+                    && !texture.name.ends_with("_specular")
+                    && !texture.name.ends_with("_special")
+            }))
+        else {
+            log::warn!("YSM model {} has no base texture", path.display());
+            continue;
+        };
+        if let Err(error) = extract_ysm_textures(game_root, &path, &loaded) {
+            log::warn!("YSM textures from {} could not be extracted: {error}", path.display());
+            continue;
+        }
+        let texture_path = ysm_texture_resource_path(&path, &texture.name);
+        return Some(LoadedPlayerYsm {
+            path,
+            loaded,
+            main_part,
+            texture_path,
+        });
+    }
+    None
+}
+
 /// The block facts and the tables read from them.
 pub(super) struct GameplayTables {
     pub(super) behaviour_json: serde_json::Value,
@@ -158,6 +277,15 @@ pub(super) fn load_core(
     progress: &Progress,
     launch_world: Option<&str>,
 ) -> std::result::Result<std::result::Result<CoreTables, String>, String> {
+    // YSM textures are ordinary player-atlas sprites. Extract them before
+    // Assets::reload enumerates atlas sources, then reuse this parsed model
+    // during the later mob-table load instead of decrypting it a second time.
+    let ysm_model = if headless {
+        None
+    } else {
+        let game_root = std::env::current_dir().unwrap_or_default();
+        startup::time("core.ysm_player_model", || load_player_ysm(&game_root)).map(Arc::new)
+    };
     // The model library reads every file under `assets/` and needs no
     // block registry, so it is parsed beside `Assets::load` rather than
     // after it. It used to sit inside `reload` behind both the registry
@@ -285,6 +413,7 @@ pub(super) fn load_core(
         visibility: visibility?,
         item_renderer: item_renderer?,
         collision: Arc::new(collision?),
+        ysm_model,
         assets,
         render,
     }))
