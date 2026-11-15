@@ -704,7 +704,7 @@ fn parse_modern_image(
     }
 }
 
-/// Reads the YSM model metadata footer used by YSM formats 4-25.
+/// Reads the YSM model metadata footer used by YSM formats 4 and newer.
 fn parse_ysm_metadata(
     reader: &mut ResourceReader<'_>,
     format: u32,
