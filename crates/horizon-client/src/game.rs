@@ -12396,7 +12396,12 @@ fn load_world_rest(
                             mannequin.layers.insert("player_slim#main".to_owned(), converted);
                             mannequin.texture = texture_path;
                         }
-                        log::info!("Loaded YSM player model from {}", path.display());
+                        let display_name = loaded.resource.metadata.as_ref()
+                            .map(|metadata| metadata.name.as_str())
+                            .filter(|name| !name.is_empty())
+                            .or_else(|| loaded.header.get("name"))
+                            .unwrap_or("unnamed");
+                        log::info!("Loaded YSM player model '{display_name}' from {}", path.display());
                         // Stop after the first valid model (or the explicitly selected
                         // active.txt entry); otherwise later files would overwrite it.
                         break;
