@@ -14,7 +14,7 @@ This crate currently:
 
 The public entry point is `decrypt_container(file_bytes)`. It returns the decompressed
 serialized YSM resource stream. The crate also has bounded geometry, texture, animation, animation-controller, sound and metadata decoders
-for YSM formats 4–15. The Horizon client converts the main model and extracted
+for YSM formats 4–26. The Horizon client converts the main model and extracted
 base texture into its avatar renderer. Numeric keyframes can drive the metadata preview animation (or the first
 available animation when no preview is declared). Numeric Molang expressions
 support arithmetic, comparisons, boolean and ternary expressions, common math functions,
@@ -22,7 +22,7 @@ and player-state queries such as movement, ground contact, sprinting, health, he
 controller state is tracked per entity; supported numeric Molang conditions
 select transitions, and multiple weighted animations can be blended. The full
 Bedrock/Molang language and entity-query catalog, event execution, and
-blend-transition behavior are not yet implemented. Formats above 15 (the modern sub-entity resource layout), complete stateful controller execution, extra-animation UI, and the full first-person texture path are not yet complete. The separate
+blend-transition behavior are not yet implemented. Formats above 26 (the newer multi-category modern resource layout), complete stateful controller execution, extra-animation UI, and the full first-person texture path are not yet complete. The separate
 YSM arm geometry is loaded when available.
 
 ## Direct `.ysm` model storage
@@ -43,7 +43,7 @@ Horizon creates this directory and discovers `.ysm` files directly. Without
 `active.txt`, it selects the first valid file in filename order. No `.hmod`
 wrapper is required.
 
-For formats 4–15, the loader also reads the YSM metadata footer (model name,
+For formats 4–26, the loader also reads the YSM metadata footer (model name,
 tips, license, authors, links, scaling values, default texture, preview
 animation, and extra-animation declarations). The default texture and preview
 animation are used when present; `active_animation.txt` can override the

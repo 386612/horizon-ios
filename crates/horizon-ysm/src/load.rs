@@ -2,7 +2,7 @@
 use std::path::Path;
 
 use crate::{
-    decrypt_container, parse_header, parse_resource_v4_v15, DecryptError, HeaderError,
+    decrypt_container, parse_header, parse_resource_v4_v15, parse_resource_v16_v26, DecryptError, HeaderError,
     ResourceError, YsmHeader, YsmResource,
 };
 
@@ -27,7 +27,7 @@ impl std::fmt::Display for LoadError {
             Self::Header(e) => write!(f, "invalid YSM header: {e}"),
             Self::Decrypt(e) => write!(f, "could not decrypt YSM file: {e}"),
             Self::Resource(e) => write!(f, "could not parse YSM resources: {e}"),
-            Self::UnsupportedFormat(v) => write!(f, "YSM format {v} is not supported by the legacy resource decoder (supported: 4-15)"),
+            Self::UnsupportedFormat(v) => write!(f, "YSM format {v} is not supported by the resource decoder (supported: 4-26)"),
         }
     }
 }
@@ -43,11 +43,15 @@ pub fn load_ysm_file(path: impl AsRef<Path>) -> Result<LoadedYsm, LoadError> {
 
 pub fn load_ysm_bytes(bytes: &[u8]) -> Result<LoadedYsm, LoadError> {
     let header = parse_header(bytes)?;
-    if !(4..=15).contains(&header.format) {
+    if !(4..=26).contains(&header.format) {
         return Err(LoadError::UnsupportedFormat(header.format));
     }
     let decompressed = decrypt_container(bytes)?;
-    let (resource, _consumed) = parse_resource_v4_v15(&decompressed, header.format)?;
+    let (resource, _consumed) = if header.format <= 15 {
+        parse_resource_v4_v15(&decompressed, header.format)?
+    } else {
+        parse_resource_v16_v26(&decompressed, header.format)?
+    };
     Ok(LoadedYsm { header, resource })
 }
 

@@ -172,7 +172,6 @@ pub fn parse_resource_v4_v15(
         models.push((name.to_owned(), model));
     }
 
-    let mut animations = Vec::new();
     for _ in 0..reader.read_count("animation count")? {
         let model_id = u32::try_from(reader.read_varint()?)
             .map_err(|_| ResourceError::LengthLimit("animation model id"))?;
@@ -312,16 +311,18 @@ pub fn parse_resource_v16_v26(
         }
     }
 
+    let mut animations = Vec::new();
+    let mut controllers = Vec::new();
     // Format 16-26 has one named sub-entity section. Its model is duplicated
     // in the final model table, where ids 1 and 2 identify main and arm.
     for _ in 0..reader.read_count("sub-entity count")? {
         let _sub_entity_name = reader.read_string()?;
         if reader.read_varint()? != 0 {
-            let _animation = parse_animation(&mut reader, 1)?;
+            animations.push(parse_animation(&mut reader, 1)?);
         }
         if reader.read_varint()? != 0 {
             let _controller_hash = reader.read_string()?;
-            let _controller = parse_controller(&mut reader)?;
+            controllers.push(parse_controller(&mut reader)?);
         }
         let _texture_hash = reader.read_string()?;
         let _texture_data = reader.read_bytes()?;
@@ -347,7 +348,6 @@ pub fn parse_resource_v16_v26(
         animations.push(parse_animation(&mut reader, model_id)?);
     }
 
-    let mut controllers = Vec::new();
     for _ in 0..reader.read_count("animation controller count")? {
         let _controller_name = reader.read_string()?;
         let _controller_hash = reader.read_string()?;
