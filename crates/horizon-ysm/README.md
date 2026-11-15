@@ -35,7 +35,8 @@ The model directory is relative to Horizon's game working directory:
 config/
 └── ysm/
     ├── active.txt        # optional exact .ysm filename to select
-    ├── active_animation.txt # optional exact animation track name
+    ├── active_animation.txt # optional animation name or metadata alias
+    ├── available_animations.txt # generated list of usable animation tracks
     └── models/
         ├── model1.ysm
         └── model2.ysm
@@ -62,7 +63,7 @@ tips, license, authors, links, scaling values, default texture, preview
 animation, and extra-animation declarations). The default texture and preview
 animation are used when present; `active_animation.txt` can override the
 preview animation by exact animation name. This metadata support does not yet provide
-the full in-game extra-animation selector or complete stateful animation-controller behavior.
+the full in-game extra-animation selector or complete stateful animation-controller behavior. At startup, Horizon writes the discovered player/extra tracks and metadata aliases to `config/ysm/available_animations.txt`; copy a listed track name or alias into `active_animation.txt` to select it. Extra-animation button configuration forms are listed for diagnostics but do not yet have an interactive UI.
 
 ## Upstream algorithm and attribution
 
