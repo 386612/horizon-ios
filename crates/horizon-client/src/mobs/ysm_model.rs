@@ -403,11 +403,17 @@ fn tokenize_molang(source: &str) -> Option<Vec<MolangToken>> {
         if let Some(token) = simple { tokens.push(token); i += 1; continue; }
         if c.is_ascii_digit() || c == '.' {
             let start = i;
-            i += 1;
-            while i < bytes.len() && ((bytes[i] as char).is_ascii_digit() || matches!(bytes[i] as char, '.' | 'e' | 'E' | '+' | '-') && (bytes[i-1] as char).is_ascii_digit() == false) {
-                // A sign belongs to a number only immediately after an exponent.
-                if matches!(bytes[i] as char, '+' | '-') && !matches!(bytes[i-1] as char, 'e' | 'E') { break; }
+            while i < bytes.len() && (bytes[i] as char).is_ascii_digit() { i += 1; }
+            if i < bytes.len() && bytes[i] == b'.' {
                 i += 1;
+                while i < bytes.len() && (bytes[i] as char).is_ascii_digit() { i += 1; }
+            }
+            if i < bytes.len() && matches!(bytes[i], b'e' | b'E') {
+                i += 1;
+                if i < bytes.len() && matches!(bytes[i], b'+' | b'-') { i += 1; }
+                let exponent_start = i;
+                while i < bytes.len() && (bytes[i] as char).is_ascii_digit() { i += 1; }
+                if exponent_start == i { return None; }
             }
             let value = source.get(start..i)?.parse::<f32>().ok()?;
             if !value.is_finite() { return None; }
@@ -489,17 +495,17 @@ impl MolangParser {
                     if self.tokens.get(self.cursor) != Some(&MolangToken::RightParen) { return None; }
                     self.cursor += 1;
                     return match (name.as_str(), args.as_slice()) {
-                        ("math.sin", [x]) => Some(x.sin()),
-                        ("math.cos", [x]) => Some(x.cos()),
-                        ("math.abs", [x]) => Some(x.abs()),
-                        ("math.floor", [x]) => Some(x.floor()),
-                        ("math.ceil", [x]) => Some(x.ceil()),
-                        ("math.round", [x]) => Some(x.round()),
-                        ("math.sqrt", [x]) if *x >= 0.0 => Some(x.sqrt()),
-                        ("math.min", [a,b]) => Some(a.min(*b)),
-                        ("math.max", [a,b]) => Some(a.max(*b)),
-                        ("math.clamp", [x,a,b]) => Some(x.clamp(*a,*b)),
-                        ("math.lerp", [a,b,t]) => Some(a + (b-a)*t),
+                        ("math.sin", [x]) => Some(x.to_radians().sin()),
+                        ("math.cos", [x]) => Some(x.to_radians().cos()),
+                        ("math.abs", [x]) => Some((*x).abs()),
+                        ("math.floor", [x]) => Some((*x).floor()),
+                        ("math.ceil", [x]) => Some((*x).ceil()),
+                        ("math.round", [x]) => Some((*x).round()),
+                        ("math.sqrt", [x]) if *x >= 0.0 => Some((*x).sqrt()),
+                        ("math.min", [a,b]) => Some((*a).min(*b)),
+                        ("math.max", [a,b]) => Some((*a).max(*b)),
+                        ("math.clamp", [x,a,b]) => Some((*x).clamp(*a,*b)),
+                        ("math.lerp", [a,b,t]) => Some(*a + (*b-*a)* *t),
                         _ => None,
                     };
                 }
