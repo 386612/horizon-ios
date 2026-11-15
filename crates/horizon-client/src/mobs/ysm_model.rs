@@ -12,6 +12,7 @@ pub enum YsmModelError {
     MissingParent { bone: String, parent: String },
     CyclicHierarchy,
     InvalidTextureDimensions,
+    MissingArmBone(&'static str),
 }
 
 impl fmt::Display for YsmModelError {
@@ -24,6 +25,7 @@ impl fmt::Display for YsmModelError {
             }
             Self::CyclicHierarchy => f.write_str("YSM bone hierarchy contains a cycle"),
             Self::InvalidTextureDimensions => f.write_str("YSM model has invalid texture dimensions"),
+            Self::MissingArmBone(side) => write!(f, "YSM arm model is missing its {side} arm bone"),
         }
     }
 }
@@ -39,6 +41,37 @@ pub fn apply_ysm_model_scale(part: &mut Part, width_scale: f32, height_scale: f3
     part.pose[6] = width;
     part.pose[7] = height;
     part.pose[8] = width;
+}
+
+/// Converts the YSM arm submodel to Horizon's right/left first-person arm parts.
+/// YSM exports commonly use PascalCase names (for example, `RightArm`), while
+/// Horizon's vanilla models use snake_case; compare normalized names so both
+/// layouts are accepted without changing the original names used by animations.
+pub fn convert_ysm_arm_model(
+    model: &YsmModel,
+    width_scale: f32,
+    height_scale: f32,
+) -> Result<[Part; 2], YsmModelError> {
+    let converted = convert_ysm_model(model)?;
+    let normalize = |name: &str| -> String {
+        name.chars()
+            .filter(|ch| ch.is_ascii_alphanumeric())
+            .map(|ch| ch.to_ascii_lowercase())
+            .collect()
+    };
+    let right = converted.children.iter()
+        .find(|part| normalize(&part.name) == "rightarm")
+        .cloned()
+        .ok_or(YsmModelError::MissingArmBone("right"))?;
+    let left = converted.children.iter()
+        .find(|part| normalize(&part.name) == "leftarm")
+        .cloned()
+        .ok_or(YsmModelError::MissingArmBone("left"))?;
+    let mut right = right;
+    let mut left = left;
+    apply_ysm_model_scale(&mut right, width_scale, height_scale);
+    apply_ysm_model_scale(&mut left, width_scale, height_scale);
+    Ok([right, left])
 }
 
 /// Converts a decoded YSM model to the same Part/Polygon representation used
@@ -245,6 +278,23 @@ mod tests {
         assert_eq!(&vertex[..3], &[-62.0, 125.0, 188.0]);
         assert_eq!(&vertex[3..], &[0.5, 0.5]);
         assert_eq!(root.polygons[0].normal, [-1.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn converts_pascal_case_and_snake_case_arm_bone_names() {
+        let right = YsmBone {
+            name: "RightArm".into(), parent: String::new(), cubes: vec![],
+            pivot: [1.0, 2.0, 3.0], rotation_radians: [0.0; 3],
+        };
+        let left = YsmBone {
+            name: "left_arm".into(), parent: String::new(), cubes: vec![],
+            pivot: [-1.0, 2.0, 3.0], rotation_radians: [0.0; 3],
+        };
+        let arms = convert_ysm_arm_model(&model(vec![right, left]), 0.8, 0.65).unwrap();
+        assert_eq!(arms[0].name, "RightArm");
+        assert_eq!(arms[1].name, "left_arm");
+        assert_eq!(&arms[0].pose[6..9], &[0.8, 0.65, 0.8]);
+        assert_eq!(&arms[1].pose[6..9], &[0.8, 0.65, 0.8]);
     }
 
     #[test]
