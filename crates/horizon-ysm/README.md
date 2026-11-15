@@ -14,7 +14,7 @@ This crate currently:
 
 The public entry point is `decrypt_container(file_bytes)`. It returns the decompressed
 serialized YSM resource stream. The crate also has bounded geometry, texture, animation, animation-controller, sound and metadata decoders
-for YSM formats 4–25. The modern decoder retains both category sub-entity geometry and shared player/arm model records. The Horizon client converts the main model and extracted
+for YSM formats 4 and newer. Formats 16–25 retain category sub-entity geometry and shared player/arm model records; formats 26+ parse the vehicle/projectile category layout and later shared-name model records. The Horizon client converts the main model and extracted
 base texture into its avatar renderer. Modern formats 16–25 use the sub-entity
 and image-file resource layout. Numeric keyframes can drive the metadata preview animation (or the first
 available animation when no preview is declared). Numeric Molang expressions
@@ -24,7 +24,7 @@ controller state is tracked per entity; supported numeric Molang conditions
 select transitions, and multiple weighted animations can be blended. The full
 Bedrock/Molang language and entity-query catalog, event execution, and
 `blend_transitions` map selection are not yet implemented; direct
-`blend_transition` durations are applied when controller states change. Formats above 25 (the newer multi-category modern resource layout), non-PNG modern image codecs (BMP/JPEG/WEBP/AVIF), complete stateful controller execution, extra-animation UI, and the full first-person texture path are not yet complete. The separate
+`blend_transition` durations are applied when controller states change. Non-PNG modern image codecs (BMP/JPEG/WEBP/AVIF), complete stateful controller execution, extra-animation UI, and the full first-person texture path are not yet complete. The separate
 YSM arm geometry is loaded when available.
 
 ## Direct `.ysm` model storage
@@ -57,4 +57,4 @@ the full in-game extra-animation selector or complete stateful animation-control
 The Crypto v3 pipeline follows the public OpenYSM/YSMParser implementation.
 The modified CityHash source is vendored from OpenYSM/YSMParser's
 `external/cityhash` directory and retains its upstream MIT copyright and
-license notice. The upstream YSMParser repository is MIT-licensed.
+license notice. The upstream YSMParser repository is MIT-licensed. The modern category parser follows the official format-26 and later entity ordering, including its section marker and per-category model-name tables.
