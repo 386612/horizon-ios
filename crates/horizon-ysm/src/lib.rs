@@ -11,7 +11,7 @@ pub mod resource;
 pub mod legacy_resource;
 pub mod load;
 
-pub use load::{load_ysm_bytes, load_ysm_file, LoadError, LoadedYsm};
+pub use load::{load_ysm_bytes, load_ysm_directory, load_ysm_file, DiscoveredYsm, LoadError, LoadedYsm};
 
 pub use legacy_resource::{parse_resource_v4_v9, YsmResource};
 
