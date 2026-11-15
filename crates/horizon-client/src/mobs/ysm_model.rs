@@ -359,7 +359,9 @@ pub fn apply_default_animation(
             .find(|(name, _)| name == state_name)
         {
             // Evaluate supported numeric Molang transition conditions in declaration order.
-            for (condition, target) in &state.transitions {
+            // The serialized pair is (target_state, Molang_condition), matching
+            // Bedrock's transition object where each target maps to its condition.
+            for (target, condition) in &state.transitions {
                 if eval_molang(condition, life_time).is_some_and(|value| value != 0.0) {
                     state_name = target;
                     break;
@@ -369,8 +371,8 @@ pub fn apply_default_animation(
         if let Some((_, state)) = controller.states.iter().find(|(name, _)| name == state_name) {
             if let Some((animation_name, _)) = state.animations.first() {
                 selected = runtime.animations.iter().find(|animation| {
-                    animation.name == *animation_name
-                        || animation.name == animation_name.strip_prefix("animation.").unwrap_or(animation_name)
+                    animation.name.as_str() == animation_name.as_str()
+                        || animation.name.as_str() == animation_name.strip_prefix("animation.").unwrap_or(animation_name)
                 });
             }
         }
