@@ -329,8 +329,16 @@ static DEFAULT_ANIMATIONS: std::sync::OnceLock<
     std::sync::RwLock<HashMap<String, YsmRuntimeAnimations>>,
 > = std::sync::OnceLock::new();
 
+#[derive(Clone, Debug)]
+struct ControllerRuntimeState {
+    current_state: String,
+    previous_state: Option<String>,
+    transition_started: f32,
+    blend_duration: f32,
+}
+
 static DEFAULT_CONTROLLER_STATES: std::sync::OnceLock<
-    std::sync::Mutex<HashMap<(String, u32, String), String>>,
+    std::sync::Mutex<HashMap<(String, u32, String), ControllerRuntimeState>>,
 > = std::sync::OnceLock::new();
 
 /// Registers decoded animation tracks and controller state graphs for a YSM avatar.
@@ -390,39 +398,57 @@ pub fn apply_default_animation(
         let mut states = registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         for controller in &runtime.controllers {
             let key = (texture.to_owned(), mob.id, controller.name.clone());
-            let current_state = states.get(&key).map(String::as_str)
-                .unwrap_or(controller.initial_state.as_str());
-            let next_state = controller_next_state(controller, current_state, base_context);
-            states.insert(key, next_state.clone());
-            let Some(animation_entries) = controller_state_animations(controller, &next_state) else { continue; };
-            for (name, weight) in animation_entries {
-                let animation_weight = if weight.is_empty() {
-                    1.0
-                } else {
-                    eval_molang_with_context(weight, base_context).unwrap_or(1.0)
-                };
-                if animation_weight == 0.0 { continue; }
-                let Some(animation) = runtime.animations.iter().find(|animation| {
-                    animation.name.as_str() == name.as_str()
-                        || animation.name.as_str() == name.strip_prefix("animation.").unwrap_or(name)
-                }) else { continue; };
-                let blend_weight = match &animation.blend_weight {
-                    Some(YsmMolangValue::Number(value)) if value.is_finite() => *value,
-                    Some(YsmMolangValue::Expression(expression)) => {
-                        eval_molang_with_context(expression, base_context).unwrap_or(1.0)
-                    }
-                    _ => 1.0,
-                };
-                let total_weight = animation_weight * blend_weight;
-                if total_weight == 0.0 { continue; }
-                if let Some((_, existing_weight)) = selected_animations.iter_mut()
-                    .find(|(selected, _)| selected.name == animation.name)
-                {
-                    *existing_weight += total_weight;
-                } else {
-                    selected_animations.push((animation, total_weight));
-                }
+            let runtime_state = states.entry(key).or_insert_with(|| ControllerRuntimeState {
+                current_state: controller.initial_state.clone(),
+                previous_state: None,
+                transition_started: base_context.life_time,
+                blend_duration: 0.0,
+            });
+            let next_state = controller_next_state(controller, &runtime_state.current_state, base_context);
+            if next_state != runtime_state.current_state {
+                let blend_duration = controller.states.iter()
+                    .find(|(name, _)| name == &next_state)
+                    .and_then(|(_, state)| state.blend_transition)
+                    .unwrap_or(0.0)
+                    .max(0.0);
+                runtime_state.previous_state = (blend_duration > 0.0)
+                    .then(|| runtime_state.current_state.clone());
+                runtime_state.current_state = next_state;
+                runtime_state.transition_started = base_context.life_time;
+                runtime_state.blend_duration = blend_duration;
             }
+
+            let progress = if runtime_state.previous_state.is_some() && runtime_state.blend_duration > 0.0 {
+                ((base_context.life_time - runtime_state.transition_started) / runtime_state.blend_duration)
+                    .clamp(0.0, 1.0)
+            } else {
+                1.0
+            };
+            let previous_state = if progress < 1.0 {
+                runtime_state.previous_state.clone()
+            } else {
+                runtime_state.previous_state = None;
+                runtime_state.blend_duration = 0.0;
+                None
+            };
+            if let Some(previous) = previous_state.as_deref() {
+                append_controller_animations(
+                    &mut selected_animations,
+                    runtime,
+                    controller,
+                    previous,
+                    base_context,
+                    1.0 - progress,
+                );
+            }
+            append_controller_animations(
+                &mut selected_animations,
+                runtime,
+                controller,
+                &runtime_state.current_state,
+                base_context,
+                progress,
+            );
         }
     }
     if selected_animations.is_empty() && runtime.controllers.is_empty() {
@@ -749,6 +775,46 @@ impl MolangParser {
                 }
             }
             _ => None,
+        }
+    }
+}
+
+fn append_controller_animations<'a>(
+    selected: &mut Vec<(&'a YsmAnimationInfo, f32)>,
+    runtime: &'a YsmRuntimeAnimations,
+    controller: &horizon_ysm::YsmAnimationController,
+    state_name: &str,
+    context: MolangContext,
+    transition_weight: f32,
+) {
+    if transition_weight <= 0.0 { return; }
+    let Some(entries) = controller_state_animations(controller, state_name) else { return; };
+    for (name, weight) in entries {
+        let state_weight = if weight.is_empty() {
+            1.0
+        } else {
+            eval_molang_with_context(weight, context).unwrap_or(1.0)
+        };
+        if state_weight == 0.0 { continue; }
+        let Some(animation) = runtime.animations.iter().find(|animation| {
+            animation.name.as_str() == name.as_str()
+                || animation.name.as_str() == name.strip_prefix("animation.").unwrap_or(name)
+        }) else { continue; };
+        let animation_weight = match &animation.blend_weight {
+            Some(YsmMolangValue::Number(value)) if value.is_finite() => *value,
+            Some(YsmMolangValue::Expression(expression)) => {
+                eval_molang_with_context(expression, context).unwrap_or(1.0)
+            }
+            _ => 1.0,
+        };
+        let total_weight = state_weight * animation_weight * transition_weight;
+        if total_weight == 0.0 { continue; }
+        if let Some((_, existing_weight)) = selected.iter_mut()
+            .find(|(selected_animation, _)| selected_animation.name == animation.name)
+        {
+            *existing_weight += total_weight;
+        } else {
+            selected.push((animation, total_weight));
         }
     }
 }
