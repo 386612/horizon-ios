@@ -30,6 +30,17 @@ impl fmt::Display for YsmModelError {
 
 impl std::error::Error for YsmModelError {}
 
+/// Applies the model-level YSM width/height scale to a model root or arm part.
+/// YSM's renderer scales X/Z by width_scale and Y by height_scale; the default
+/// for legacy models without metadata is 0.7 on both axes.
+pub fn apply_ysm_model_scale(part: &mut Part, width_scale: f32, height_scale: f32) {
+    let width = if width_scale.is_finite() { width_scale } else { 0.7 };
+    let height = if height_scale.is_finite() { height_scale } else { 0.7 };
+    part.pose[6] = width;
+    part.pose[7] = height;
+    part.pose[8] = width;
+}
+
 /// Converts a decoded YSM model to the same Part/Polygon representation used
 /// by Horizon's mob renderer.
 ///
@@ -457,5 +468,35 @@ mod animation_sampling_tests {
         };
         assert_eq!(sample_numeric_channel(&channel, 1.0), Some([10.0; 3]));
         assert_eq!(sample_numeric_channel(&channel, 0.5), Some([5.625; 3]));
+    }
+}
+
+
+#[cfg(test)]
+mod model_scale_tests {
+    use super::*;
+
+    #[test]
+    fn applies_ysm_width_and_height_scale_to_the_root_pose() {
+        let mut part = Part {
+            name: "root".into(),
+            pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            polygons: Vec::new(),
+            children: Vec::new(),
+        };
+        apply_ysm_model_scale(&mut part, 0.8, 0.65);
+        assert_eq!(&part.pose[6..9], &[0.8, 0.65, 0.8]);
+    }
+
+    #[test]
+    fn falls_back_for_non_finite_ysm_scale_values() {
+        let mut part = Part {
+            name: "root".into(),
+            pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            polygons: Vec::new(),
+            children: Vec::new(),
+        };
+        apply_ysm_model_scale(&mut part, f32::NAN, f32::INFINITY);
+        assert_eq!(&part.pose[6..9], &[0.7, 0.7, 0.7]);
     }
 }

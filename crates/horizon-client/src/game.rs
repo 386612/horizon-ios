@@ -12317,13 +12317,21 @@ fn load_world_rest(
                             log::warn!("YSM model {} has no main model", path.display());
                             continue;
                         };
-                        let converted = match horizon_client::mobs::ysm_model::convert_ysm_model(model) {
+                        let mut converted = match horizon_client::mobs::ysm_model::convert_ysm_model(model) {
                             Ok(part) => part,
                             Err(error) => {
                                 log::warn!("YSM model {} could not be converted: {error}", path.display());
                                 continue;
                             }
                         };
+                        let (width_scale, height_scale) = loaded.resource.metadata.as_ref()
+                            .map(|metadata| (metadata.width_scale, metadata.height_scale))
+                            .unwrap_or((0.7, 0.7));
+                        horizon_client::mobs::ysm_model::apply_ysm_model_scale(
+                            &mut converted,
+                            width_scale,
+                            height_scale,
+                        );
                         let default_texture = loaded.resource.metadata.as_ref()
                             .map(|metadata| metadata.default_texture.as_str())
                             .filter(|name| !name.is_empty());
@@ -12362,7 +12370,17 @@ fn load_world_rest(
                             if let Ok(arm_part) = horizon_client::mobs::ysm_model::convert_ysm_model(arm_model) {
                                 let right = arm_part.children.iter().find(|part| part.name == "right_arm").cloned();
                                 let left = arm_part.children.iter().find(|part| part.name == "left_arm").cloned();
-                                if let (Some(right), Some(left)) = (right, left) {
+                                if let (Some(mut right), Some(mut left)) = (right, left) {
+                                    horizon_client::mobs::ysm_model::apply_ysm_model_scale(
+                                        &mut right,
+                                        width_scale,
+                                        height_scale,
+                                    );
+                                    horizon_client::mobs::ysm_model::apply_ysm_model_scale(
+                                        &mut left,
+                                        width_scale,
+                                        height_scale,
+                                    );
                                     horizon_client::mobs::ysm_model::register_default_player_arms([right, left]);
                                 }
                             }
