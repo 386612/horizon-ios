@@ -17,9 +17,10 @@ serialized YSM resource stream. The crate also has bounded geometry, texture, an
 for YSM formats 4–15. The Horizon client converts the main model and extracted
 base texture into its avatar renderer. Numeric keyframes can drive the metadata preview animation (or the first
 available animation when no preview is declared). Numeric Molang expressions
-support arithmetic, common math functions, and animation-time queries. Legacy
+support arithmetic, comparisons, boolean and ternary expressions, common math functions,
+and player-state queries such as movement, ground contact, sprinting, health and head rotation. Legacy
 controller initial-state animations and transitions with supported numeric
-Molang conditions can select tracks. Full entity query context, event execution,
+Molang conditions can select tracks. The full Bedrock/Molang language and entity-query catalog, event execution,
 and blend-transition behavior are not yet implemented. Formats above 15 (the modern sub-entity resource layout), complete stateful controller execution, extra-animation UI, and the full first-person texture path are not yet complete. The separate
 YSM arm geometry is loaded when available.
 
