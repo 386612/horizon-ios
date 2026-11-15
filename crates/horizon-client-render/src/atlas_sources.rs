@@ -170,6 +170,34 @@ fn decode_source(s: &Value) -> Option<SpriteSource> {
     })
 }
 
+/// Lists the extracted YSM PNGs using the same resource identifiers that
+/// `texture_path` resolves back into config/ysm/models/.textures.
+fn list_ysm_texture_ids(ysm_root: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Ok(namespaces) = fs::read_dir(ysm_root) {
+        let mut stack = vec![(namespaces, String::new())];
+        while let Some((entries, prefix)) = stack.pop() {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                    if !name.is_empty() && name != "." && name != ".." && !name.contains('\\') {
+                        let next = if prefix.is_empty() { name } else { format!("{prefix}/{name}") };
+                        if let Ok(children) = fs::read_dir(path) {
+                            stack.push((children, next));
+                        }
+                    }
+                } else if path.extension().is_some_and(|ext| ext == "png") {
+                    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+                    let rel = if prefix.is_empty() { stem.into_owned() } else { format!("{prefix}/{stem}") };
+                    out.push(format!("minecraft:entity/player/ysm/{rel}"));
+                }
+            }
+        }
+    }
+    out
+}
+
 /// The texture files of a resource tree: `namespace:path` for every
 /// `assets/<namespace>/textures/<path>.png`.
 pub fn list_textures(root: &Path) -> Vec<String> {
@@ -214,32 +242,11 @@ pub fn list_textures(root: &Path) -> Vec<String> {
         }
     }
     }
-    // YSM textures are extracted alongside the user's model files and exposed
-    // as ordinary entity sprites to the existing atlas pipeline.
+    // YSM textures are extracted before the renderer builds this atlas.
     let ysm_root = std::env::current_dir()
         .unwrap_or_default()
         .join("config/ysm/models/.textures");
-    if let Ok(namespaces) = fs::read_dir(&ysm_root) {
-        let mut stack = vec![(namespaces, String::new())];
-        while let Some((entries, prefix)) = stack.pop() {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let name = entry.file_name().to_string_lossy().into_owned();
-                if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-                    if !name.is_empty() && name != "." && name != ".." && !name.contains('\\') {
-                        let next = if prefix.is_empty() { name } else { format!("{prefix}/{name}") };
-                        if let Ok(children) = fs::read_dir(path) {
-                            stack.push((children, next));
-                        }
-                    }
-                } else if path.extension().is_some_and(|ext| ext == "png") {
-                    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
-                    let rel = if prefix.is_empty() { stem.into_owned() } else { format!("{prefix}/{stem}") };
-                    out.push(format!("minecraft:entity/player/ysm/{rel}"));
-                }
-            }
-        }
-    }
+    out.extend(list_ysm_texture_ids(&ysm_root));
     out.sort();
     out.dedup();
     out
@@ -508,6 +515,26 @@ mod tests {
             SpriteOrigin::File("minecraft:block/stone".into())
         );
     }
+    #[test]
+    fn discovers_pre_extracted_ysm_textures_for_the_player_atlas() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "horizon-ysm-atlas-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed),
+        ));
+        let texture = root.join("1/aru.png");
+        fs::create_dir_all(texture.parent().unwrap()).unwrap();
+        fs::write(&texture, b"png placeholder").unwrap();
+
+        assert_eq!(
+            list_ysm_texture_ids(&root),
+            ["minecraft:entity/player/ysm/1/aru"],
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn malformed_sources_fail_the_file() {
         assert!(decode(r#"{"sources":[{"type":"directory","source":"item"}]}"#).is_none());
