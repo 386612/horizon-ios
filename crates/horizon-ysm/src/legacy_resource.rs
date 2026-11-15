@@ -749,6 +749,35 @@ mod format_16_tests {
     use super::*;
 
     #[test]
+    fn parses_modern_png_texture_files() {
+        let png = encode_rgba_texture("main", 1, 1, &[255, 0, 0, 255]).unwrap().png_bytes;
+        let mut data = Vec::new();
+        data.extend_from_slice(&16u32.to_le_bytes());
+        for _ in 0..4 { varint(&mut data, 0); } // sound/function/language/sub-entity counts
+        varint(&mut data, 1); // sub-entity footer
+        varint(&mut data, 0); // animations
+        varint(&mut data, 0); // controllers
+        varint(&mut data, 1); // textures
+        string(&mut data, "main");
+        string(&mut data, "texture-hash");
+        varint(&mut data, png.len() as u64);
+        data.extend_from_slice(&png);
+        varint(&mut data, 1); // width
+        varint(&mut data, 1); // height
+        varint(&mut data, 0); // image format
+        varint(&mut data, 0); // unknown flag
+        varint(&mut data, 0); // subtextures
+        varint(&mut data, 0); // models
+        string(&mut data, ""); varint(&mut data, 0); // no metadata
+
+        let (resource, consumed) = parse_resource_v16_v26(&data, 16).unwrap();
+        assert_eq!(consumed, data.len());
+        assert_eq!(resource.textures.len(), 1);
+        assert_eq!(resource.textures[0].name, "main");
+        assert_eq!(resource.textures[0].png_bytes, png);
+    }
+
+    #[test]
     fn parses_an_empty_modern_format_sixteen_resource() {
         let mut data = Vec::new();
         data.extend_from_slice(&16u32.to_le_bytes());
