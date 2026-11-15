@@ -442,7 +442,7 @@ enum MolangToken {
     Ident(String),
     Plus, Minus, Star, Slash, Percent,
     Greater, Less, GreaterEqual, LessEqual, Equal, NotEqual, And, Or, Not,
-    LeftParen, RightParen, Comma,
+    LeftParen, RightParen, Comma, Question, Colon,
 }
 
 fn tokenize_molang(source: &str) -> Option<Vec<MolangToken>> {
@@ -471,7 +471,8 @@ fn tokenize_molang(source: &str) -> Option<Vec<MolangToken>> {
             '%' => Some(MolangToken::Percent), '>' => Some(MolangToken::Greater),
             '<' => Some(MolangToken::Less), '!' => Some(MolangToken::Not),
             '(' => Some(MolangToken::LeftParen), ')' => Some(MolangToken::RightParen),
-            ',' => Some(MolangToken::Comma),
+            ',' => Some(MolangToken::Comma), '?' => Some(MolangToken::Question),
+            ':' => Some(MolangToken::Colon),
             _ => None,
         };
         if let Some(token) = simple { tokens.push(token); i += 1; continue; }
@@ -513,7 +514,19 @@ struct MolangParser {
 }
 
 impl MolangParser {
-    fn expression(&mut self) -> Option<f32> { self.logical_or() }
+    fn expression(&mut self) -> Option<f32> {
+        let condition = self.logical_or()?;
+        if self.tokens.get(self.cursor) == Some(&MolangToken::Question) {
+            self.cursor += 1;
+            let when_true = self.expression()?;
+            if self.tokens.get(self.cursor) != Some(&MolangToken::Colon) { return None; }
+            self.cursor += 1;
+            let when_false = self.expression()?;
+            Some(if condition != 0.0 { when_true } else { when_false })
+        } else {
+            Some(condition)
+        }
+    }
     fn logical_or(&mut self) -> Option<f32> {
         let mut value = self.logical_and()?;
         while self.tokens.get(self.cursor) == Some(&MolangToken::Or) {
@@ -820,6 +833,7 @@ mod animation_sampling_tests {
         assert_eq!(eval_molang("query.anim_time * 2 + 1", 3.0), Some(7.0));
         assert_eq!(eval_molang("query.anim_time > 2 && query.anim_time <= 4", 3.0), Some(1.0));
         assert_eq!(eval_molang("!(query.anim_time < 2)", 3.0), Some(1.0));
+        assert_eq!(eval_molang("query.anim_time > 2 ? 10 : 0", 3.0), Some(10.0));
         let context = MolangContext { is_on_ground: true, ground_speed: 0.8, ..MolangContext::default() };
         assert_eq!(eval_molang_with_context("query.is_on_ground && query.ground_speed > 0.5", context), Some(1.0));
         assert_eq!(eval_molang("math.sin(90)", 0.0), Some(1.0));
