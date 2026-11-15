@@ -1,4 +1,4 @@
-//! Legacy YSM resource table reader for format versions 4 through 15.
+//! YSM resource table readers for legacy formats 4-15 and modern formats 16-26.
 use crate::resource::{
     encode_rgba_texture, parse_model_record, ResourceError, ResourceReader, YsmModel, YsmTexture,
 };
