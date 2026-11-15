@@ -250,11 +250,20 @@ mod tests {
         let state20 = xchacha_initial_state(&key, &iv, 20);
         let state30 = xchacha_initial_state(&key, &iv, 30);
 
-        // The upstream xchacha20 key-setup passes ctx.rounds into HChaCha.
-        // Therefore all three YSM round modes derive different subkeys.
-        assert_ne!(&state10[4..12], &state20[4..12]);
-        assert_ne!(&state20[4..12], &state30[4..12]);
-        assert_ne!(&state10[4..12], &state30[4..12]);
+        // Known answers from the upstream xchacha20 key-setup, which passes
+        // the initial YSM round count into HChaCha as well as the stream cipher.
+        assert_eq!(
+            state10[4..12].iter().flat_map(|word| word.to_le_bytes()).collect::<Vec<_>>(),
+            hex_bytes("3392647fd3f84513943ee44214b70a28f46539d36463f0babc7eb47b69e742e2"),
+        );
+        assert_eq!(
+            state20[4..12].iter().flat_map(|word| word.to_le_bytes()).collect::<Vec<_>>(),
+            hex_bytes("438a0465002a29378d437318819e08fd8064a9f33236c88aaf20325dffb779d1"),
+        );
+        assert_eq!(
+            state30[4..12].iter().flat_map(|word| word.to_le_bytes()).collect::<Vec<_>>(),
+            hex_bytes("c2692b3cdb6a049831aa4a8300c6e306bc69eea2cb45b6adffd8629165439afb"),
+        );
     }
 
     #[test]
