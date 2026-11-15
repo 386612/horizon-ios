@@ -174,9 +174,7 @@ fn decode_source(s: &Value) -> Option<SpriteSource> {
 /// `assets/<namespace>/textures/<path>.png`.
 pub fn list_textures(root: &Path) -> Vec<String> {
     let mut out = Vec::new();
-    let Ok(namespaces) = fs::read_dir(root.join("assets")) else {
-        return out;
-    };
+    if let Ok(namespaces) = fs::read_dir(root.join("assets")) {
     for ns in namespaces.flatten() {
         let namespace = ns.file_name().to_string_lossy().into_owned();
         let base = ns.path().join("textures");
@@ -215,7 +213,35 @@ pub fn list_textures(root: &Path) -> Vec<String> {
             }
         }
     }
+    }
+    // YSM textures are extracted alongside the user's model files and exposed
+    // as ordinary entity sprites to the existing atlas pipeline.
+    let ysm_root = std::env::current_dir()
+        .unwrap_or_default()
+        .join("config/ysm/models/.textures");
+    if let Ok(namespaces) = fs::read_dir(&ysm_root) {
+        let mut stack = vec![(namespaces, String::new())];
+        while let Some((entries, prefix)) = stack.pop() {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                    if !name.is_empty() && name != "." && name != ".." && !name.contains('\\') {
+                        let next = if prefix.is_empty() { name } else { format!("{prefix}/{name}") };
+                        if let Ok(children) = fs::read_dir(path) {
+                            stack.push((children, next));
+                        }
+                    }
+                } else if path.extension().is_some_and(|ext| ext == "png") {
+                    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+                    let rel = if prefix.is_empty() { stem.into_owned() } else { format!("{prefix}/{stem}") };
+                    out.push(format!("minecraft:entity/player/ysm/{rel}"));
+                }
+            }
+        }
+    }
     out.sort();
+    out.dedup();
     out
 }
 /// The file of a texture identifier. A Custom Item Textures id (`cit_assets`) names its
@@ -232,6 +258,21 @@ pub fn texture_path(root: &Path, texture: &str, directory: &str) -> PathBuf {
         );
     }
     let (namespace, path) = texture.split_once(':').unwrap_or(("minecraft", texture));
+    if namespace == "minecraft"
+        && let Some(relative) = path.strip_prefix("entity/player/ysm/")
+    {
+        let safe = !relative.is_empty()
+            && relative.split('/').all(|segment| {
+                !matches!(segment, "" | "." | "..") && !segment.contains('\\')
+            });
+        if safe {
+            return std::env::current_dir()
+                .unwrap_or_default()
+                .join("config/ysm/models/.textures")
+                .join(format!("{relative}.png"));
+        }
+        return root.join(NOWHERE);
+    }
     let rel = format!("assets/{namespace}/{directory}/{path}.png");
     // No `.`, `..` or empty segment, and no `\` (a separator on Windows, where `..\..` climbs).
     let stays = rel

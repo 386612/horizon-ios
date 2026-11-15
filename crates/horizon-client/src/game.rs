@@ -12276,7 +12276,7 @@ fn load_world_rest(
     };
     let load_mobs = || -> Result<_> {
         let _step = startup::step("rest.mobs");
-        let mob_types: HashMap<_, _> = if draws {
+        let mut loaded_mob_types = if draws {
             match entity_models {
                 Some(document) => {
                     MobTypes::load_with_document_and_defaults(root, document, item_defaults)?
@@ -12285,11 +12285,114 @@ fn load_world_rest(
             }
         } else {
             MobTypes::load_for_server(root)?
+        };
+        if draws {
+            horizon_client::mobs::ysm_model::clear_registered_player_model();
+            let game_root = std::env::current_dir().unwrap_or_default();
+            match horizon_ysm::load_ysm_directory(&game_root) {
+                Ok(mut entries) => {
+                    // Optional exact filename selector; otherwise use deterministic filename order.
+                    if let Some(selected) = std::fs::read_to_string(game_root.join("config/ysm/active.txt"))
+                        .ok()
+                        .map(|value| value.trim().to_owned())
+                        .filter(|value| !value.is_empty())
+                    {
+                        if let Some(index) = entries.iter().position(|entry| {
+                            entry.path.file_name().is_some_and(|name| name.to_string_lossy() == selected)
+                        }) {
+                            entries.swap(0, index);
+                        }
+                    }
+                    for entry in entries {
+                        let loaded = match entry.result {
+                            Ok(loaded) => loaded,
+                            Err(error) => {
+                                log::warn!("YSM model {} could not be loaded: {error}", entry.path.display());
+                                continue;
+                            }
+                        };
+                        let Some((_, model)) = loaded.resource.models.iter().find(|(name, _)| name == "main") else {
+                            log::warn!("YSM model {} has no main model", entry.path.display());
+                            continue;
+                        };
+                        let converted = match horizon_client::mobs::ysm_model::convert_ysm_model(model) {
+                            Ok(part) => part,
+                            Err(error) => {
+                                log::warn!("YSM model {} could not be converted: {error}", entry.path.display());
+                                continue;
+                            }
+                        };
+                        let Some(texture) = loaded.resource.textures.iter().find(|texture| {
+                            !texture.name.ends_with("_normal")
+                                && !texture.name.ends_with("_specular")
+                                && !texture.name.ends_with("_special")
+                        }) else {
+                            log::warn!("YSM model {} has no base texture", entry.path.display());
+                            continue;
+                        };
+                        let safe_component = |value: &str| -> String {
+                            let value: String = value.chars()
+                                .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_' || *ch == '-')
+                                .take(64)
+                                .collect();
+                            if value.is_empty() { "model".to_owned() } else { value }
+                        };
+                        let model_stem = entry.path.file_stem()
+                            .and_then(|stem| stem.to_str())
+                            .unwrap_or("model");
+                        let model_id = safe_component(model_stem);
+                        let texture_id = safe_component(&texture.name);
+                        let texture_root = game_root.join("config/ysm/models/.textures").join(&model_id);
+                        if let Err(error) = std::fs::create_dir_all(&texture_root)
+                            .and_then(|_| std::fs::write(texture_root.join(format!("{texture_id}.png")), &texture.png_bytes))
+                        {
+                            log::warn!("YSM texture from {} could not be extracted: {error}", entry.path.display());
+                            continue;
+                        }
+                        let texture_path = format!("entity/player/ysm/{model_id}/{texture_id}");
+                        if let Some((_, arm_model)) = loaded.resource.models.iter().find(|(name, _)| name == "arm") {
+                            if let Ok(arm_part) = horizon_client::mobs::ysm_model::convert_ysm_model(arm_model) {
+                                let right = arm_part.children.iter().find(|part| part.name == "right_arm").cloned();
+                                let left = arm_part.children.iter().find(|part| part.name == "left_arm").cloned();
+                                if let (Some(right), Some(left)) = (right, left) {
+                                    horizon_client::mobs::ysm_model::register_default_player_arms([right, left]);
+                                }
+                            }
+                        }
+                        let converted = Arc::new(converted);
+                        horizon_client::mobs::ysm_model::register_default_player_model(
+                            converted.clone(),
+                            texture_path.clone(),
+                        );
+                        let animations: Vec<_> = loaded.resource.animations.iter()
+                            .filter(|animation| animation.model_id == 1)
+                            .cloned()
+                            .collect();
+                        horizon_client::mobs::ysm_model::register_default_animations(
+                            texture_path.clone(),
+                            animations,
+                        );
+                        if let Some(player) = loaded_mob_types.types.get_mut("minecraft:player") {
+                            player.model = converted.clone();
+                            player.layers.insert("player_slim#main".to_owned(), converted.clone());
+                            player.texture = texture_path.clone();
+                        }
+                        if let Some(mannequin) = loaded_mob_types.types.get_mut("minecraft:mannequin") {
+                            mannequin.model = converted.clone();
+                            mannequin.layers.insert("player_slim#main".to_owned(), converted);
+                            mannequin.texture = texture_path;
+                            log::info!("Loaded YSM player model from {}", entry.path.display());
+                            break;
+                        }
+                    }
+                }
+                Err(error) => log::warn!("Could not scan config/ysm/models: {error}"),
+            }
         }
-        .types
-        .into_iter()
-        .map(|(k, v)| (k, Arc::new(v)))
-        .collect();
+        let mob_types: HashMap<_, _> = loaded_mob_types.types
+            .into_iter()
+            .map(|(k, v)| (k, Arc::new(v)))
+            .collect();
         let mut mob_data = horizon_client::mobs::MobData::load(root, facts);
         mob_data.cem = std::sync::RwLock::new(Arc::new(if draws {
             horizon_client::mobs::cem::CemModels::load(root, &mob_types)
@@ -12408,7 +12511,14 @@ fn load_world_rest(
     let (items, recipes, stations) = items?;
     let (animate, fog) = animate?;
     let (mob_types, mob_data) = mobs?;
-    let (transformers, (player_type, player_arm, player_arm_slim, spin_attack)) = transformers?;
+    let (transformers, (player_type, mut player_arm, mut player_arm_slim, spin_attack)) = transformers?;
+    horizon_client::mobs::ysm_model::apply_registered_player_arms(&mut player_arm);
+    horizon_client::mobs::ysm_model::apply_registered_player_arms(&mut player_arm_slim);
+    let player_type = player_type.map(|player_type| {
+        let mut player_type = (*player_type).clone();
+        horizon_client::mobs::ysm_model::apply_registered_player_model(&mut player_type);
+        Arc::new(player_type)
+    });
     let nether_environment = nether_environment?;
     let end_environment = end_environment?;
     log::info!(

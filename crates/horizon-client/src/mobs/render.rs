@@ -261,7 +261,11 @@ pub fn body(m: &Mob) -> (Cow<'static, str>, Cow<'_, str>) {
         // AvatarRenderer: PlayerModel's slim layer for a slim skin.
         return (
             if m.slim { "player_slim#main" } else { "main" }.into(),
-            m.skin.as_deref().unwrap_or(&m.kind.texture).into(),
+            if m.kind.texture.starts_with("entity/player/ysm/") {
+                m.kind.texture.as_str().into()
+            } else {
+                m.skin.as_deref().unwrap_or(&m.kind.texture).into()
+            },
         );
     }
     match m.species() {
@@ -2065,6 +2069,9 @@ fn posed_body_stage(
     } else {
         anim::vanilla_setup(m, &s, &mut poses, &data.animations);
     }
+    if m.kind.texture.starts_with("entity/player/ysm/") {
+        super::ysm_model::apply_default_animation(&m.kind.texture, s.age, &mut poses);
+    }
     if let Some(c) = custom
         && let Some(animation) = &c.animation
     {
@@ -2106,6 +2113,11 @@ fn render_visible(
         Some(custom) => custom.model.clone(),
         // 3D skin layers: the player's own outer layer, one slab per painted
         // texel (`mobs::skin_layers`), in place of the flat inflated box.
+        None if m.kind.texture.starts_with("entity/player/ysm/") => m
+            .kind
+            .layer(&model_key)
+            .cloned()
+            .unwrap_or_else(|| m.kind.model.clone()),
         None => m
             .skin_3d
             .clone()
@@ -2158,6 +2170,9 @@ fn render_visible(
     let mut poses = Poses::pooled();
     poses.reset(&model);
     anim::setup(m, &s, &mut poses, &data.animations);
+    if m.kind.texture.starts_with("entity/player/ysm/") {
+        super::ysm_model::apply_default_animation(&m.kind.texture, s.age, &mut poses);
+    }
     if let Some(animation) = body_animation {
         animation.run(m, &s, &mut poses);
     }

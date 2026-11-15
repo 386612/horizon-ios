@@ -13,7 +13,12 @@ This crate currently:
 - restores YSM's modified Zstandard frame/block headers and decompresses the resource stream.
 
 The public entry point is `decrypt_container(file_bytes)`. It returns the decompressed
-serialized YSM resource stream. The crate also has bounded geometry and RGBA-to-PNG texture record decoders, plus a legacy resource-table reader for YSM format versions 4–9. Animation records are currently indexed/skipped rather than converted into runtime keyframe tracks. Full modern-format resource parsing and connection to the game's player renderer remain future work.
+serialized YSM resource stream. The crate also has bounded geometry, texture and legacy animation-record decoders
+for YSM formats 4–9. The Horizon client converts the main model and extracted
+base texture into its avatar renderer. Numeric keyframes can drive the first
+animation; Molang expressions are retained but are not evaluated yet. Formats
+above 9, animation controllers, extra-animation UI, and the full YSM animation controller/first-person texture path are not yet complete. The separate
+YSM arm geometry is loaded when available.
 
 ## Direct `.ysm` model storage
 
@@ -22,13 +27,15 @@ The model directory is relative to Horizon's game working directory:
 ```text
 config/
 └── ysm/
+    ├── active.txt        # optional exact .ysm filename to select
     └── models/
         ├── model1.ysm
         └── model2.ysm
 ```
 
-Horizon creates this directory and discovers `.ysm` files directly. No
-`.hmod` wrapper is required.
+Horizon creates this directory and discovers `.ysm` files directly. Without
+`active.txt`, it selects the first valid file in filename order. No `.hmod`
+wrapper is required.
 
 ## Upstream algorithm and attribution
 

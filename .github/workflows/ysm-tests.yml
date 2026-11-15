@@ -1,16 +1,8 @@
 name: YSM parser tests
 
 on:
-  push:
-    branches: [feature/ysm-player-model]
-    paths:
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'crates/horizon-ysm/**'
-      - 'crates/horizon-client/src/mobs.rs'
-      - 'crates/horizon-client/src/mobs/ysm_model.rs'
-      - 'crates/horizon-client-lib/Cargo.toml'
-      - '.github/workflows/ysm-tests.yml'
+  # CI is intentionally held until the YSM feature set is complete.
+  workflow_dispatch:
   pull_request:
     paths:
       - 'Cargo.toml'
@@ -34,3 +26,5 @@ jobs:
         run: cargo test --locked -p horizon-ysm
       - name: Test YSM to Horizon model conversion
         run: cargo test --locked -p horizon-client-lib --lib --no-default-features ysm_model::tests
+      - name: Check player model runtime integration
+        run: cargo check --locked -p horizon-client --lib --no-default-features

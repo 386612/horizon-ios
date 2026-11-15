@@ -1,7 +1,7 @@
 //! Conversion of decoded YSM geometry into Horizon's hierarchical mob model.
 use super::{Part, Polygon};
-use horizon_ysm::YsmModel;
-use std::collections::HashMap;
+use horizon_ysm::{YsmAnimationInfo, YsmMolangValue, YsmModel};
+use std::{collections::HashMap, sync::Arc};
 use std::fmt;
 
 /// Errors that prevent a YSM bone hierarchy from becoming a renderable model.
@@ -248,4 +248,151 @@ mod tests {
         let b = YsmBone { name: "b".into(), parent: "a".into(), cubes: vec![], pivot: [0.0; 3], rotation_radians: [0.0; 3] };
         assert!(matches!(convert_ysm_model(&model(vec![a, b])), Err(YsmModelError::CyclicHierarchy)));
     }
+}
+
+
+static DEFAULT_PLAYER_MODEL: std::sync::OnceLock<
+    std::sync::RwLock<Option<(Arc<Part>, String)>>,
+> = std::sync::OnceLock::new();
+static DEFAULT_PLAYER_ARMS: std::sync::OnceLock<
+    std::sync::RwLock<Option<[Part; 2]>>,
+> = std::sync::OnceLock::new();
+
+/// Publishes the currently selected YSM geometry for both mannequin and player
+/// render states, which share Horizon's avatar renderer.
+pub fn register_default_player_model(model: Arc<Part>, texture: String) {
+    let registry = DEFAULT_PLAYER_MODEL.get_or_init(|| std::sync::RwLock::new(None));
+    *registry.write().unwrap_or_else(std::sync::PoisonError::into_inner) =
+        Some((model, texture));
+}
+
+/// Clears a previous world/resource selection before scanning the next one.
+pub fn clear_registered_player_model() {
+    let registry = DEFAULT_PLAYER_MODEL.get_or_init(|| std::sync::RwLock::new(None));
+    *registry.write().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    let arms = DEFAULT_PLAYER_ARMS.get_or_init(|| std::sync::RwLock::new(None));
+    *arms.write().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    let animations = DEFAULT_ANIMATIONS.get_or_init(|| std::sync::RwLock::new(HashMap::new()));
+    animations.write().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+}
+
+/// Applies the selected YSM avatar model to the player type created by the
+/// perspective/resource bootstrap.
+/// Registers the converted right/left first-person arm parts from the YSM arm model.
+pub fn register_default_player_arms(arms: [Part; 2]) {
+    let registry = DEFAULT_PLAYER_ARMS.get_or_init(|| std::sync::RwLock::new(None));
+    *registry.write().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(arms);
+}
+
+/// Replaces the wide and slim first-person arm parts when a YSM arm model exists.
+pub fn apply_registered_player_arms(arms: &mut [Option<Part>; 2]) {
+    let registry = DEFAULT_PLAYER_ARMS.get_or_init(|| std::sync::RwLock::new(None));
+    let guard = registry.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(replacement) = guard.as_ref() {
+        arms[0] = Some(replacement[0].clone());
+        arms[1] = Some(replacement[1].clone());
+    }
+}
+
+pub fn apply_registered_player_model(mob_type: &mut super::MobType) {
+    let registry = DEFAULT_PLAYER_MODEL.get_or_init(|| std::sync::RwLock::new(None));
+    let guard = registry.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some((model, texture)) = guard.as_ref() else {
+        return;
+    };
+    mob_type.model = model.clone();
+    mob_type.layers.insert("player_slim#main".to_owned(), model.clone());
+    mob_type.texture = texture.clone();
+}
+
+
+static DEFAULT_ANIMATIONS: std::sync::OnceLock<
+    std::sync::RwLock<HashMap<String, Vec<YsmAnimationInfo>>>,
+> = std::sync::OnceLock::new();
+
+/// Registers the default animation tracks for a loaded YSM avatar texture.
+pub fn register_default_animations(texture: String, animations: Vec<YsmAnimationInfo>) {
+    let registry = DEFAULT_ANIMATIONS.get_or_init(|| std::sync::RwLock::new(HashMap::new()));
+    registry.write().unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(texture, animations);
+}
+
+/// Applies the first animation for the selected YSM model. Numeric keyframes
+/// are interpolated; expression-valued Molang components remain available in
+/// the parsed resource but are not evaluated by this numeric fallback.
+pub fn apply_default_animation(
+    texture: &str,
+    age_ticks: f32,
+    poses: &mut super::anim::Poses,
+) {
+    let registry = DEFAULT_ANIMATIONS.get_or_init(|| std::sync::RwLock::new(HashMap::new()));
+    let guard = registry.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(animation) = guard.get(texture).and_then(|animations| animations.first()) else {
+        return;
+    };
+    let duration = animation.duration_ticks / 20.0;
+    let mut time = age_ticks / 20.0;
+    if duration > 0.0 && duration.is_finite() {
+        time = match animation.loop_mode {
+            1 => time.rem_euclid(duration),
+            _ => time.min(duration),
+        };
+    }
+    for bone in &animation.bones {
+        for (channel_index, channel) in bone.channels.iter().enumerate() {
+            let Some(value) = sample_numeric_channel(channel, time) else {
+                continue;
+            };
+            let pose = poses.get(&bone.bone_name);
+            match channel_index {
+                0 => {
+                    pose[3] += (-value[0]).to_radians();
+                    pose[4] += (-value[1]).to_radians();
+                    pose[5] += value[2].to_radians();
+                }
+                1 => {
+                    pose[0] -= value[0];
+                    pose[1] += value[1];
+                    pose[2] += value[2];
+                }
+                2 => {
+                    pose[6] *= value[0];
+                    pose[7] *= value[1];
+                    pose[8] *= value[2];
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+fn sample_numeric_channel(
+    channel: &horizon_ysm::YsmAnimationChannel,
+    time: f32,
+) -> Option<[f32; 3]> {
+    let frames = &channel.keyframes;
+    let first = frames.first()?;
+    let numeric = |values: &[YsmMolangValue; 3]| -> Option<[f32; 3]> {
+        let result = std::array::from_fn(|i| match &values[i] {
+            YsmMolangValue::Number(value) => *value,
+            YsmMolangValue::Expression(_) => f32::NAN,
+        });
+        result.iter().all(|value| value.is_finite()).then_some(result)
+    };
+    if time <= first.time {
+        return numeric(&first.post);
+    }
+    for pair in frames.windows(2) {
+        let (from, to) = (&pair[0], &pair[1]);
+        if time <= to.time {
+            let a = numeric(&from.post)?;
+            if from.lerp_mode == 1 || to.time <= from.time {
+                return Some(a);
+            }
+            let b = numeric(to.pre.as_ref().unwrap_or(&to.post))?;
+            let t = ((time - from.time) / (to.time - from.time)).clamp(0.0, 1.0);
+            return Some(std::array::from_fn(|i| a[i] + (b[i] - a[i]) * t));
+        }
+    }
+    numeric(&frames.last()?.post)
 }
