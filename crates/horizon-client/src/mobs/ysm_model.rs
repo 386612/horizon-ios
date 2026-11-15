@@ -394,13 +394,20 @@ pub fn apply_default_animation(
                 .unwrap_or(controller.initial_state.as_str());
             let next_state = controller_next_state(controller, current_state, base_context);
             states.insert(key, next_state.clone());
-            let Some(name) = controller_animation_name(controller, &next_state) else { continue; };
-            let Some(animation) = runtime.animations.iter().find(|animation| {
-                animation.name.as_str() == name
-                    || animation.name.as_str() == name.strip_prefix("animation.").unwrap_or(name)
-            }) else { continue; };
-            if !selected_animations.iter().any(|selected| selected.name == animation.name) {
-                selected_animations.push(animation);
+            let Some(animation_entries) = controller_state_animations(controller, &next_state) else { continue; };
+            for (name, weight) in animation_entries {
+                if !weight.is_empty()
+                    && eval_molang_with_context(weight, base_context).is_some_and(|value| value == 0.0)
+                {
+                    continue;
+                }
+                let Some(animation) = runtime.animations.iter().find(|animation| {
+                    animation.name.as_str() == name.as_str()
+                        || animation.name.as_str() == name.strip_prefix("animation.").unwrap_or(name)
+                }) else { continue; };
+                if !selected_animations.iter().any(|selected| selected.name == animation.name) {
+                    selected_animations.push(animation);
+                }
             }
         }
     }
@@ -744,14 +751,13 @@ fn controller_next_state(
     next_state
 }
 
-fn controller_animation_name<'a>(
+fn controller_state_animations<'a>(
     controller: &'a horizon_ysm::YsmAnimationController,
     state_name: &str,
-) -> Option<&'a str> {
+) -> Option<&'a [(String, String)]> {
     controller.states.iter()
         .find(|(name, _)| name == state_name)
-        .and_then(|(_, state)| state.animations.first())
-        .map(|(name, _)| name.as_str())
+        .map(|(_, state)| state.animations.as_slice())
 }
 
 
@@ -881,10 +887,10 @@ mod animation_sampling_tests {
         };
         let idle = controller_next_state(&controller, "idle", MolangContext { anim_time: 0.5, life_time: 0.5, ..MolangContext::default() });
         assert_eq!(idle, "idle");
-        assert_eq!(controller_animation_name(&controller, &idle), Some("animation.idle"));
+        assert_eq!(controller_state_animations(&controller, &idle).unwrap()[0].0, "animation.idle");
         let running = controller_next_state(&controller, &idle, MolangContext { anim_time: 1.5, life_time: 1.5, ..MolangContext::default() });
         assert_eq!(running, "run");
-        assert_eq!(controller_animation_name(&controller, &running), Some("animation.run"));
+        assert_eq!(controller_state_animations(&controller, &running).unwrap()[0].0, "animation.run");
         // A state remains active until one of its own transitions changes it.
         assert_eq!(controller_next_state(&controller, &running, MolangContext::default()), "run");
     }
