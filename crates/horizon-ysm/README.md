@@ -45,6 +45,18 @@ Horizon creates this directory and discovers `.ysm` files directly. Without
 `active.txt`, it selects the first valid file in filename order. No `.hmod`
 wrapper is required.
 
+### Real-file smoke test
+
+To run the parser against a local sample without adding the model file to the
+repository, set `HORIZON_YSM_TEST_FILE`:
+
+```sh
+HORIZON_YSM_TEST_FILE=/path/to/1.ysm cargo test --locked -p horizon-ysm loads_external_ysm_fixture_when_configured -- --nocapture
+```
+
+The test decrypts the container, parses the resource tables, and checks that a
+main model and at least one texture were recovered.
+
 For formats 4–25, the loader also reads the YSM metadata footer (model name,
 tips, license, authors, links, scaling values, default texture, preview
 animation, and extra-animation declarations). The default texture and preview
