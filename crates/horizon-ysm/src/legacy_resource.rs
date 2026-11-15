@@ -135,6 +135,7 @@ pub struct YsmAnimationInfo {
     /// Duration in file ticks (20 ticks per second).
     pub duration_ticks: f32,
     pub loop_mode: u64,
+    pub blend_weight: Option<YsmMolangValue>,
     pub bones: Vec<YsmBoneAnimation>,
     pub timeline: Vec<YsmTimelineEvent>,
 }
@@ -171,12 +172,11 @@ pub fn parse_resource_v4_v15(
         models.push((name.to_owned(), model));
     }
 
-    for _ in 0..reader.read_count("animation count")? {
+    for _ in 0..reader.read_count("animation blob count")? {
         let model_id = u32::try_from(reader.read_varint()?)
             .map_err(|_| ResourceError::LengthLimit("animation model id"))?;
         let _unknown = reader.read_varint()?;
-        let animation = parse_animation(&mut reader, model_id)?;
-        animations.push(animation);
+        animations.extend(parse_animation_group(&mut reader, model_id, expected_format)?);
     }
 
     // Formats 10-15 add animation controllers before texture records.
@@ -319,7 +319,7 @@ pub fn parse_resource_v16_v26(
     for _ in 0..reader.read_count("sub-entity count")? {
         let _sub_entity_name = reader.read_string()?;
         if reader.read_varint()? != 0 {
-            animations.push(parse_animation(&mut reader, 1)?);
+            animations.extend(parse_animation_group(&mut reader, 1, expected_format)?);
         }
         if reader.read_varint()? != 0 {
             let _controller_hash = reader.read_string()?;
@@ -369,10 +369,10 @@ pub fn parse_resource_v16_v26(
         return Err(ResourceError::InvalidModel("invalid modern sub-entity footer flag"));
     }
 
-    for _ in 0..reader.read_count("animation count")? {
+    for _ in 0..reader.read_count("animation blob count")? {
         let model_id = u32::try_from(reader.read_varint()?)
             .map_err(|_| ResourceError::LengthLimit("animation model id"))?;
-        animations.push(parse_animation(&mut reader, model_id)?);
+        animations.extend(parse_animation_group(&mut reader, model_id, expected_format)?);
     }
 
     for _ in 0..reader.read_count("animation controller count")? {
@@ -665,14 +665,51 @@ fn parse_controller(reader: &mut ResourceReader<'_>) -> Result<YsmAnimationContr
     Ok(YsmAnimationController { name, initial_state, states })
 }
 
+fn parse_animation_group(
+    reader: &mut ResourceReader<'_>,
+    model_id: u32,
+    format: u32,
+) -> Result<Vec<YsmAnimationInfo>, ResourceError> {
+    if format > 15 {
+        let _animation_hash = reader.read_string()?;
+    }
+    let mut animations = Vec::new();
+    for _ in 0..reader.read_count("animation record count")? {
+        animations.push(parse_animation(reader, model_id, format)?);
+    }
+    Ok(animations)
+}
+
 fn parse_animation(
     reader: &mut ResourceReader<'_>,
     model_id: u32,
+    format: u32,
 ) -> Result<YsmAnimationInfo, ResourceError> {
     let name = reader.read_string()?;
     // Keep duration in source ticks; the runtime converts it to seconds.
     let duration_ticks = reader.read_f32()?;
     let loop_mode = reader.read_varint()?;
+    let blend_weight = if format > 9 {
+        let first_flag = reader.read_varint()?;
+        let second_flag = reader.read_varint()?;
+        if first_flag != 0 || second_flag != 0 {
+            return Err(ResourceError::InvalidModel("unsupported animation compatibility flags"));
+        }
+        let mut blend_weight = None;
+        for _ in 0..reader.read_count("animation blend weight count")? {
+            blend_weight = Some(match reader.read_exact(1)?[0] {
+                1 => YsmMolangValue::Number(reader.read_f32()?),
+                2 => YsmMolangValue::Expression(reader.read_string()?),
+                _ => return Err(ResourceError::InvalidModel("unknown animation blend weight type")),
+            });
+        }
+        if reader.read_varint()? != 0 {
+            return Err(ResourceError::InvalidModel("unsupported animation compatibility field"));
+        }
+        blend_weight
+    } else {
+        None
+    };
     let mut bones = Vec::new();
     for _ in 0..reader.read_count("animation bone count")? {
         let bone_name = reader.read_string()?;
@@ -700,6 +737,7 @@ fn parse_animation(
         name,
         duration_ticks,
         loop_mode,
+        blend_weight,
         bones,
         timeline,
     })
