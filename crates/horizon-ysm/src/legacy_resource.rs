@@ -1013,7 +1013,7 @@ mod animation_tests {
         f32le(&mut bytes, 8.0);
 
         let mut reader = ResourceReader::new(&bytes);
-        let animation = parse_animation(&mut reader, 1).unwrap();
+        let animation = parse_animation(&mut reader, 1, 4).unwrap();
         assert_eq!(animation.name, "animation.test");
         assert_eq!(animation.duration_ticks, 40.0);
         assert_eq!(animation.loop_mode, 1);
