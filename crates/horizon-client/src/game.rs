@@ -12338,20 +12338,30 @@ fn load_world_rest(
                             converted.clone(),
                             texture_path.clone(),
                         );
-                        let selected_animation = std::fs::read_to_string(
+                        let requested_animation = std::fs::read_to_string(
                             game_root.join("config/ysm/active_animation.txt"),
                         )
                         .ok()
                         .map(|value| value.trim().to_owned())
                         .filter(|value| !value.is_empty());
-                        let has_controllers = !loaded.resource.controllers.is_empty();
-                        let explicit_animation_exists = selected_animation.as_deref().is_some_and(|selected| {
+                        let selected_animation = requested_animation.as_deref().and_then(|selected| {
                             let short_name = selected.strip_prefix("animation.").unwrap_or(selected);
-                            loaded.resource.animations.iter().any(|animation| {
+                            loaded.resource.animations.iter().find(|animation| {
                                 matches!(animation.model_id, 1 | 3)
                                     && (animation.name == selected || animation.name == short_name)
-                            })
+                            }).map(|animation| animation.name.clone())
                         });
+                        if let Some(requested) = requested_animation.as_deref()
+                            && selected_animation.is_none()
+                        {
+                            log::warn!(
+                                "YSM active animation '{}' was not found in {}; using model defaults",
+                                requested,
+                                path.display(),
+                            );
+                        }
+                        let has_controllers = !loaded.resource.controllers.is_empty();
+                        let explicit_animation_exists = selected_animation.is_some();
                         // Model id 3 is YSM's "extra" animation bank, not the
                         // player's default animation bank. Keep it available to
                         // controllers or an explicit active_animation.txt choice,

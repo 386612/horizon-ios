@@ -424,7 +424,9 @@ pub fn parse_resource_v16_v25(
         }
     }
 
-    let mut models = Vec::new();
+    // Keep the geometry parsed from the sub-entity section above. The final
+    // model table adds shared player/arm/extra geometry; it must not shadow
+    // and discard the category-specific models.
     for _ in 0..reader.read_count("model count")? {
         let id = reader.read_varint()?;
         let start = reader.position();
@@ -830,6 +832,62 @@ mod format_16_tests {
     fn string(out: &mut Vec<u8>, value: &str) {
         varint(out, value.len() as u64);
         out.extend_from_slice(value.as_bytes());
+    }
+
+    fn model_record(out: &mut Vec<u8>) {
+        string(out, "model-sha");
+        varint(out, 1); // bones
+        string(out, ""); // parent
+        varint(out, 1); // cubes
+        varint(out, 1); // faces
+        for value in [0.0, 0.0, 1.0] { f32le(out, value); }
+        for index in 0..4 {
+            for value in [index as f32, 0.0, 0.0, index as f32, 0.0] {
+                f32le(out, value);
+            }
+        }
+        for _ in 0..3 { varint(out, 0); } // reserved cube fields
+        string(out, "root");
+        for _ in 0..5 { varint(out, 0); }
+        for _ in 0..6 { f32le(out, 0.0); }
+        string(out, "geometry.test");
+        for value in [64.0, 64.0, 2.0, 2.0] { f32le(out, value); }
+        varint(out, 3);
+        for _ in 0..3 { f32le(out, 0.0); }
+        f32le(out, 1.0);
+        f32le(out, 1.0);
+        varint(out, 0); // no legacy info
+        for _ in 0..3 { varint(out, 0); }
+    }
+
+    #[test]
+    fn retains_category_sub_entity_models_alongside_shared_player_models() {
+        let mut data = Vec::new();
+        data.extend_from_slice(&16u32.to_le_bytes());
+        for _ in 0..3 { varint(&mut data, 0); } // sounds, functions, languages
+        varint(&mut data, 1); // sub-entity count
+        string(&mut data, "minecraft:player");
+        varint(&mut data, 0); // no sub-entity animations
+        varint(&mut data, 0); // no sub-entity controller
+        string(&mut data, ""); // texture hash
+        varint(&mut data, 0); // empty texture data
+        for _ in 0..4 { varint(&mut data, 0); } // width, height, format, flag
+        varint(&mut data, 0); // no subtextures
+        model_record(&mut data);
+        varint(&mut data, 1); // sub-entity footer flag
+        varint(&mut data, 0); // global animation groups
+        varint(&mut data, 0); // global controllers
+        varint(&mut data, 0); // global textures
+        varint(&mut data, 1); // shared model table
+        varint(&mut data, 1); // main model id
+        model_record(&mut data);
+        string(&mut data, ""); varint(&mut data, 0); // no metadata
+
+        let (resource, consumed) = parse_resource_v16_v25(&data, 16).unwrap();
+        assert_eq!(consumed, data.len());
+        assert!(resource.models.iter().any(|(name, _)| name == "subentity/player"));
+        assert!(resource.models.iter().any(|(name, _)| name == "main"));
+        assert_eq!(resource.models.len(), 2);
     }
 
     #[test]

@@ -14,7 +14,7 @@ This crate currently:
 
 The public entry point is `decrypt_container(file_bytes)`. It returns the decompressed
 serialized YSM resource stream. The crate also has bounded geometry, texture, animation, animation-controller, sound and metadata decoders
-for YSM formats 4–25. The Horizon client converts the main model and extracted
+for YSM formats 4–25. The modern decoder retains both category sub-entity geometry and shared player/arm model records. The Horizon client converts the main model and extracted
 base texture into its avatar renderer. Modern formats 16–25 use the sub-entity
 and image-file resource layout. Numeric keyframes can drive the metadata preview animation (or the first
 available animation when no preview is declared). Numeric Molang expressions
