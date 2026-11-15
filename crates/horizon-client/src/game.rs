@@ -12344,13 +12344,49 @@ fn load_world_rest(
                         .ok()
                         .map(|value| value.trim().to_owned())
                         .filter(|value| !value.is_empty());
+                        // Metadata exposes human-readable aliases for extra animation
+                        // tracks. Accept either the alias or the canonical track name.
                         let selected_animation = requested_animation.as_deref().and_then(|selected| {
-                            let short_name = selected.strip_prefix("animation.").unwrap_or(selected);
+                            let mapped = loaded.resource.metadata.as_ref()
+                                .and_then(|metadata| metadata.extra_animations.iter()
+                                    .find(|(label, _)| label == selected)
+                                    .map(|(_, animation)| animation.as_str()))
+                                .unwrap_or(selected);
+                            let short_name = mapped.strip_prefix("animation.").unwrap_or(mapped);
                             loaded.resource.animations.iter().find(|animation| {
                                 matches!(animation.model_id, 1 | 3)
-                                    && (animation.name == selected || animation.name == short_name)
+                                    && (animation.name == mapped || animation.name == short_name)
                             }).map(|animation| animation.name.clone())
                         });
+                        // Keep a plain-text inventory beside active_animation.txt so
+                        // the first real-model test does not require guessing track IDs.
+                        let mut available_lines = vec![
+                            "# Copy an animation name or metadata alias to active_animation.txt".to_owned(),
+                        ];
+                        for animation in loaded.resource.animations.iter()
+                            .filter(|animation| matches!(animation.model_id, 1 | 3))
+                        {
+                            available_lines.push(animation.name.clone());
+                        }
+                        if let Some(metadata) = loaded.resource.metadata.as_ref() {
+                            for (label, animation) in &metadata.extra_animations {
+                                available_lines.push(format!("{label}={animation}"));
+                            }
+                            for button in &metadata.extra_animation_buttons {
+                                available_lines.push(format!(
+                                    "# extra-animation button: {} ({}, {} config forms; UI not wired yet)",
+                                    button.id,
+                                    button.name,
+                                    button.config_forms.len(),
+                                ));
+                            }
+                        }
+                        if let Err(error) = std::fs::write(
+                            game_root.join("config/ysm/available_animations.txt"),
+                            available_lines.join("\n"),
+                        ) {
+                            log::warn!("Could not write YSM animation list: {error}");
+                        }
                         if let Some(requested) = requested_animation.as_deref()
                             && selected_animation.is_none()
                         {
