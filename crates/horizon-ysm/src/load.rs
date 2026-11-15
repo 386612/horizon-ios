@@ -2,7 +2,7 @@
 use std::path::Path;
 
 use crate::{
-    decrypt_container, parse_header, parse_resource_v4_v9, DecryptError, HeaderError,
+    decrypt_container, parse_header, parse_resource_v4_v15, DecryptError, HeaderError,
     ResourceError, YsmHeader, YsmResource,
 };
 
@@ -43,11 +43,11 @@ pub fn load_ysm_file(path: impl AsRef<Path>) -> Result<LoadedYsm, LoadError> {
 
 pub fn load_ysm_bytes(bytes: &[u8]) -> Result<LoadedYsm, LoadError> {
     let header = parse_header(bytes)?;
-    if !(4..=9).contains(&header.format) {
+    if !(4..=15).contains(&header.format) {
         return Err(LoadError::UnsupportedFormat(header.format));
     }
     let decompressed = decrypt_container(bytes)?;
-    let (resource, _consumed) = parse_resource_v4_v9(&decompressed, header.format)?;
+    let (resource, _consumed) = parse_resource_v4_v15(&decompressed, header.format)?;
     Ok(LoadedYsm { header, resource })
 }
 

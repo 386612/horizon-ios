@@ -34,12 +34,39 @@ pub struct YsmMetadata {
     pub width_scale: f32,
     pub height_scale: f32,
     pub extra_animations: Vec<(String, String)>,
+    pub extra_animation_buttons: Vec<YsmExtraAnimationButton>,
+    pub extra_animation_classify: Vec<YsmExtraAnimationClassify>,
     pub default_texture: String,
     pub preview_animation: String,
     pub free: bool,
     pub render_layers_first: Option<bool>,
     pub all_cutout: Option<bool>,
     pub disable_preview_rotation: Option<bool>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct YsmExtraAnimationConfigForm {
+    pub kind: String,
+    pub title: String,
+    pub description: String,
+    pub value: String,
+    pub step: f32,
+    pub min: f32,
+    pub max: f32,
+    pub labels: Vec<(String, String)>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct YsmExtraAnimationButton {
+    pub id: String,
+    pub name: String,
+    pub config_forms: Vec<YsmExtraAnimationConfigForm>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct YsmExtraAnimationClassify {
+    pub id: String,
+    pub extra_animations: Vec<(String, String)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -294,6 +321,47 @@ fn parse_ysm_metadata(
     for _ in 0..reader.read_count("metadata extra animation count")? {
         extra_animations.push((reader.read_string()?, reader.read_string()?));
     }
+    let mut extra_animation_buttons = Vec::new();
+    let mut extra_animation_classify = Vec::new();
+    if format > 9 {
+        for _ in 0..reader.read_count("extra animation button count")? {
+            let id = reader.read_string()?;
+            let button_name = reader.read_string()?;
+            if reader.read_varint()? != 0 {
+                return Err(ResourceError::InvalidModel("unsupported extra-animation button flag"));
+            }
+            let mut config_forms = Vec::new();
+            for _ in 0..reader.read_count("extra animation config form count")? {
+                let kind = reader.read_string()?;
+                let title = reader.read_string()?;
+                let description = reader.read_string()?;
+                let value = reader.read_string()?;
+                let step = reader.read_f32()?;
+                let min = reader.read_f32()?;
+                let max = reader.read_f32()?;
+                let mut labels = Vec::new();
+                for _ in 0..reader.read_count("extra animation form label count")? {
+                    labels.push((reader.read_string()?, reader.read_string()?));
+                }
+                config_forms.push(YsmExtraAnimationConfigForm {
+                    kind, title, description, value, step, min, max, labels,
+                });
+            }
+            extra_animation_buttons.push(YsmExtraAnimationButton {
+                id, name: button_name, config_forms,
+            });
+        }
+        for _ in 0..reader.read_count("extra animation classify count")? {
+            let id = reader.read_string()?;
+            let mut entries = Vec::new();
+            for _ in 0..reader.read_count("extra animation classify entry count")? {
+                entries.push((reader.read_string()?, reader.read_string()?));
+            }
+            extra_animation_classify.push(YsmExtraAnimationClassify {
+                id, extra_animations: entries,
+            });
+        }
+    }
     let default_texture = reader.read_string()?;
     let preview_animation = reader.read_string()?;
     let free = reader.read_varint()? != 0;
@@ -324,6 +392,8 @@ fn parse_ysm_metadata(
         width_scale,
         height_scale,
         extra_animations,
+        extra_animation_buttons,
+        extra_animation_classify,
         default_texture,
         preview_animation,
         free,
